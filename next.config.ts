@@ -1,0 +1,21 @@
+import type { NextConfig } from "next";
+
+// Baseline security headers for every response.
+const securityHeaders = [
+  // Never render inside someone else's frame (clickjacking).
+  { key: "X-Frame-Options", value: "DENY" },
+  // Don't sniff content types.
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  // Send no referrer to other origins.
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // This app needs none of these browser features.
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+];
+
+const nextConfig: NextConfig = {
+  async headers() {
+    return [{ source: "/(.*)", headers: securityHeaders }];
+  },
+};
+
+export default nextConfig;
