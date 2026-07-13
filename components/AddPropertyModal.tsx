@@ -23,9 +23,12 @@ const RENTAL_MODELS: { value: RentalModel; label: string }[] = [
   { value: "whole_unit", label: "Whole unit" },
 ];
 
-/** Form-local room draft; numeric fields stay strings while editing. */
+/** Form-local room draft; numeric fields stay strings while editing.
+ *  `id` is the existing unit's database id when editing, so the save can
+ *  update that row in place instead of replacing it. */
 type RoomDraft = {
   key: string;
+  id?: string;
   name: string;
   rentalRate: string;
   tenantName: string;
@@ -50,7 +53,9 @@ export function AddPropertyModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onSubmit: (property: Property, units: Unit[]) => void;
+  /** Return false (or a promise of false) to keep the modal open, e.g. when
+   *  the save failed — anything else closes it. */
+  onSubmit: (property: Property, units: Unit[]) => void | boolean | Promise<void | boolean>;
   /** When set, the form edits this property instead of creating a new one. */
   initial?: { property: Property; units: Unit[] };
 }) {
@@ -70,6 +75,9 @@ export function AddPropertyModal({
   const [status, setStatus] = useState<PropertyStatus>("active");
   const [description, setDescription] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  // Existing unit id backing the whole-unit form, so edits update that row.
+  const [wholeUnitId, setWholeUnitId] = useState<string | null>(null);
 
   // Cover image. `cropped` (a data URL from the cropper) wins over the raw
   // link; `croppedFromUrl` remembers which link it was cut from, so typing a
@@ -87,6 +95,7 @@ export function AddPropertyModal({
     const p = initial?.property;
     const u = initial?.units ?? [];
     setRentalModel(p?.rentalModel ?? "room_rental");
+    setWholeUnitId(u[0]?.id ?? null);
     if (p?.rentalModel === "whole_unit") {
       setRooms([blankRoom()]);
       setOccupied(!!u[0]?.tenantName);
@@ -99,6 +108,7 @@ export function AddPropertyModal({
               seq += 1;
               return {
                 key: `room-${Date.now()}-${seq}`,
+                id: unit.id,
                 name: unit.name,
                 rentalRate: unit.rentalRate ? String(unit.rentalRate) : "",
                 tenantName: unit.tenantName ?? "",
@@ -132,6 +142,7 @@ export function AddPropertyModal({
     }
     setCropSrc(null);
     setErrors({});
+    setSaving(false);
   }, [open, initial]);
 
   // Clear a single field's error (leave the rest so each message persists
@@ -180,8 +191,9 @@ export function AddPropertyModal({
     reader.readAsDataURL(file);
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = "Enter a property name.";
     if (isRoom) {
@@ -211,7 +223,7 @@ export function AddPropertyModal({
 
     const newUnits: Unit[] = isRoom
       ? rooms.map((r, i) => ({
-          id: `${pid}-u${i + 1}`,
+          id: r.id ?? `${pid}-u${i + 1}`,
           propertyId: pid,
           name: r.name.trim(),
           tenantName: r.tenantName || undefined,
@@ -222,7 +234,7 @@ export function AddPropertyModal({
         }))
       : [
           {
-            id: `${pid}-u1`,
+            id: wholeUnitId ?? `${pid}-u1`,
             propertyId: pid,
             name: "Whole Unit",
             tenantName: occupied ? wholeTenant || undefined : undefined,
@@ -233,8 +245,13 @@ export function AddPropertyModal({
           },
         ];
 
-    onSubmit(property, newUnits);
-    onClose();
+    setSaving(true);
+    try {
+      const result = await onSubmit(property, newUnits);
+      if (result !== false) onClose();
+    } finally {
+      setSaving(false);
+    }
   }
 
   return createPortal(
@@ -558,8 +575,14 @@ export function AddPropertyModal({
         {/* Footer */}
         <div className="flex flex-wrap gap-2 justify-end px-6 py-4 shrink-0" style={{ borderTop: "1px solid var(--border-soft)", background: "var(--surface)" }}>
           <button type="button" className="ui-btn" onClick={requestClose}>Cancel</button>
-          <button type="submit" form="add-property-form" className="ui-btn ui-btn-primary">
-            {isEdit ? "Save Changes" : "Create Property"}
+          <button
+            type="submit"
+            form="add-property-form"
+            className="ui-btn ui-btn-primary"
+            disabled={saving}
+            style={saving ? { opacity: 0.6, cursor: "wait" } : undefined}
+          >
+            {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Property"}
           </button>
         </div>
       </div>

@@ -11,7 +11,7 @@ import { PropertyPreviewModal } from "@/components/PropertyPreviewModal";
 import { PropertyCover } from "@/components/PropertyCover";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
-import { deleteResource } from "@/lib/clientApi";
+import { deleteResource, saveResource } from "@/lib/clientApi";
 import { fmtMYR, type Property, type Unit } from "@/lib/data";
 
 /** Plain uppercase text label — no pill background, keeps cards calm. */
@@ -271,15 +271,25 @@ export default function PropertiesPage() {
         />
       )}
 
-      {/* Add Property popup — creates immediately, then shows the preview */}
+      {/* Add Property popup — persists to the database, then shows the preview.
+          The saved rows come back with their real (server-generated) ids. */}
       <AddPropertyModal
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        onSubmit={(property, newUnits) => {
-          setProperties((prev) => [property, ...prev]);
-          setUnits((prev) => [...prev, ...newUnits]);
-          setPreviewId(property.id);
-          toast.created(`Property ${property.name} created`);
+        onSubmit={async (property, newUnits) => {
+          const res = await saveResource<{ property: Property; units: Unit[] }>(
+            "/api/properties",
+            "POST",
+            { property, units: newUnits }
+          );
+          if (!res.ok) {
+            toast.info(res.error);
+            return false;
+          }
+          setProperties((prev) => [res.data.property, ...prev]);
+          setUnits((prev) => [...prev, ...res.data.units]);
+          setPreviewId(res.data.property.id);
+          toast.created(`Property ${res.data.property.name} created`);
         }}
       />
 
@@ -290,11 +300,20 @@ export default function PropertiesPage() {
           open
           initial={{ property: editProperty, units: units.filter((u) => u.propertyId === editProperty.id) }}
           onClose={() => setEditId(null)}
-          onSubmit={(property, newUnits) => {
-            setProperties((prev) => prev.map((p) => (p.id === property.id ? property : p)));
-            setUnits((prev) => [...prev.filter((u) => u.propertyId !== property.id), ...newUnits]);
+          onSubmit={async (property, newUnits) => {
+            const res = await saveResource<{ property: Property; units: Unit[] }>(
+              `/api/properties/${encodeURIComponent(property.id)}`,
+              "PUT",
+              { property, units: newUnits }
+            );
+            if (!res.ok) {
+              toast.info(res.error);
+              return false;
+            }
+            setProperties((prev) => prev.map((p) => (p.id === property.id ? res.data.property : p)));
+            setUnits((prev) => [...prev.filter((u) => u.propertyId !== property.id), ...res.data.units]);
             setEditId(null);
-            toast.updated(`Property ${property.name} updated`);
+            toast.updated(`Property ${res.data.property.name} updated`);
           }}
         />
       )}

@@ -8,7 +8,9 @@ import { PropertyRevenueTab } from "@/components/PropertyRevenueTab";
 import { PropertyExpensesTab } from "@/components/PropertyExpensesTab";
 import { PropertyInvoiceTab } from "@/components/PropertyInvoiceTab";
 import { PropertyImagesTab } from "@/components/PropertyImagesTab";
+import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { saveResource } from "@/lib/clientApi";
 import {
   PROPERTY_STATUS_LABEL,
   RENTAL_MODEL_LABEL,
@@ -55,6 +57,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const router = useRouter();
   const searchParams = useSearchParams();
   const { getProperty, getUnitsForProperty, revenueEntries, expenseEntries } = useData();
+  const toast = useToast();
 
   const [property, setProperty] = useState<Property | undefined>(() => getProperty(id));
   const [units, setUnits] = useState<Unit[]>(() => getUnitsForProperty(id));
@@ -172,10 +175,20 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
         open={editOpen}
         onClose={() => setEditOpen(false)}
         initial={{ property, units }}
-        onSubmit={(p, u) => {
-          setProperty(p);
-          setUnits(u);
+        onSubmit={async (p, u) => {
+          const res = await saveResource<{ property: Property; units: Unit[] }>(
+            `/api/properties/${encodeURIComponent(p.id)}`,
+            "PUT",
+            { property: p, units: u }
+          );
+          if (!res.ok) {
+            toast.info(res.error);
+            return false;
+          }
+          setProperty(res.data.property);
+          setUnits(res.data.units);
           setEditOpen(false);
+          toast.updated(`Property ${res.data.property.name} updated`);
         }}
       />
     </div>

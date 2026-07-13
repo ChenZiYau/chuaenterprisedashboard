@@ -27,7 +27,7 @@ function num(v: unknown): number | null {
 // camelCase shapes declared in lib/data.ts. These mappers bridge the two so no
 // component has to know about the database column names.
 
-function mapProperty(r: Record<string, unknown>): Property {
+export function mapProperty(r: Record<string, unknown>): Property {
   return {
     id: r.id as string,
     slug: (r.slug as string) ?? undefined,
@@ -45,7 +45,7 @@ function mapProperty(r: Record<string, unknown>): Property {
   };
 }
 
-function mapUnit(r: Record<string, unknown>): Unit {
+export function mapUnit(r: Record<string, unknown>): Unit {
   return {
     id: r.id as string,
     propertyId: r.property_id as string,
