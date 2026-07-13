@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react";
 import { ActionMenu, DatePicker, Pagination, usePagination } from "@/components/ui";
 import { AddTenantModal } from "@/components/AddTenantModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { deleteResource } from "@/lib/clientApi";
 import {
   PAYMENT_STATUS_LABEL,
   fmtMYR,
@@ -80,6 +82,7 @@ function TenantCard({
   prop,
   payment,
   lease,
+  onEdit,
   onDelete,
   onLeaseEndChange,
 }: {
@@ -88,6 +91,7 @@ function TenantCard({
   prop: Property | undefined;
   payment: PaymentStatus | null;
   lease: LeaseStatus;
+  onEdit: () => void;
   onDelete: () => void;
   onLeaseEndChange: (date: string) => void;
 }) {
@@ -115,7 +119,7 @@ function TenantCard({
         <ActionMenu
           label={`${tenant.name} actions`}
           items={[
-            { label: "Edit", onClick: () => {} },
+            { label: "Edit", onClick: onEdit },
             { label: "Delete", danger: true, onClick: onDelete },
           ]}
         />
@@ -206,6 +210,19 @@ export default function TenantsPage() {
   const [filterProp, setFilterProp] = useState("all");
   const [filterPay, setFilterPay] = useState("all");
   const [addOpen, setAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Tenant | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
+
+  async function deleteTenant(tenant: Tenant) {
+    const res = await deleteResource(`/api/tenants/${encodeURIComponent(tenant.id)}`);
+    if (res.ok) {
+      setTenants((prev) => prev.filter((x) => x.id !== tenant.id));
+      setDeleteTarget(null);
+      toast.deleted(`Tenant ${tenant.name} deleted`);
+    } else {
+      toast.info(res.error);
+    }
+  }
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -301,10 +318,8 @@ export default function TenantsPage() {
               prop={prop}
               payment={payment}
               lease={lease}
-              onDelete={() => {
-                setTenants((prev) => prev.filter((x) => x.id !== tenant.id));
-                toast.deleted(`Tenant ${tenant.name} deleted`);
-              }}
+              onEdit={() => setEditTarget(tenant)}
+              onDelete={() => setDeleteTarget(tenant)}
               onLeaseEndChange={(date) =>
                 setTenants((prev) =>
                   prev.map((x) => (x.id === tenant.id ? { ...x, leaseEnd: date } : x))
@@ -326,18 +341,39 @@ export default function TenantsPage() {
         />
       )}
 
-      {/* Add Tenant popup */}
+      {/* Add / Edit Tenant popup — same form, pre-filled when editing */}
       <AddTenantModal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
+        open={addOpen || editTarget !== null}
+        editTenant={editTarget}
+        onClose={() => {
+          setAddOpen(false);
+          setEditTarget(null);
+        }}
         properties={properties}
         units={units}
         tenants={tenants}
         onAdd={(t) => {
-          setTenants((prev) => [t, ...prev]);
-          toast.created(`Tenant ${t.name} created`);
+          if (tenants.some((x) => x.id === t.id)) {
+            setTenants((prev) => prev.map((x) => (x.id === t.id ? t : x)));
+            toast.info(`Tenant ${t.name} updated`);
+          } else {
+            setTenants((prev) => [t, ...prev]);
+            toast.created(`Tenant ${t.name} created`);
+          }
         }}
       />
+
+      {/* Delete — destructive confirm; also frees the tenant's unit */}
+      {deleteTarget && (
+        <ConfirmDialog
+          open
+          title="Delete Tenant"
+          message={`Delete ${deleteTarget.name}? This permanently removes the tenant record and marks their unit as vacant, and cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => deleteTenant(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { ActionMenu, DateField, Pagination, usePagination } from "@/components/u
 import { QuickEntryModal } from "@/components/QuickEntryModal";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { deleteResource } from "@/lib/clientApi";
 import {
   MONTHS,
   PAYMENT_METHOD_LABEL,
@@ -239,9 +240,14 @@ export default function RevenuePage() {
                             {
                               label: "Delete",
                               danger: true,
-                              onClick: () => {
-                                setEntries((prev) => prev.filter((x) => x.id !== entry.id));
-                                toast.deleted("Revenue entry deleted");
+                              onClick: async () => {
+                                const res = await deleteResource(`/api/revenue/${encodeURIComponent(entry.id)}`);
+                                if (res.ok) {
+                                  setEntries((prev) => prev.filter((x) => x.id !== entry.id));
+                                  toast.deleted("Revenue entry deleted");
+                                } else {
+                                  toast.info(res.error);
+                                }
                               },
                             },
                           ]}

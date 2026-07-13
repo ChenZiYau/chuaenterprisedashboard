@@ -5,6 +5,7 @@ import { ActionMenu, DateField, Pagination, usePagination } from "@/components/u
 import { useToast } from "@/components/Toast";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
 import { useData } from "@/lib/DataContext";
+import { deleteResource } from "@/lib/clientApi";
 import { EXPENSE_CATEGORY_LABEL, MONTHS, fmtMYR } from "@/lib/data";
 
 const CUR_YEAR = 2026;
@@ -212,9 +213,14 @@ export default function ExpensesPage() {
                             {
                               label: "Delete",
                               danger: true,
-                              onClick: () => {
-                                setEntries((prev) => prev.filter((x) => x.id !== entry.id));
-                                toast.deleted("Expense deleted");
+                              onClick: async () => {
+                                const res = await deleteResource(`/api/expenses/${encodeURIComponent(entry.id)}`);
+                                if (res.ok) {
+                                  setEntries((prev) => prev.filter((x) => x.id !== entry.id));
+                                  toast.deleted("Expense deleted");
+                                } else {
+                                  toast.info(res.error);
+                                }
                               },
                             },
                           ]}

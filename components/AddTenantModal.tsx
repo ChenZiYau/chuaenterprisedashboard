@@ -33,8 +33,9 @@ function Field({
 }
 
 /**
- * Add Tenant popup — records the person and, crucially, where they live:
- * pick a property, then one of its rooms/units.
+ * Add / Edit Tenant popup — records the person and, crucially, where they
+ * live: pick a property, then one of its rooms/units. Pass `editTenant` to
+ * open pre-filled in edit mode; submitting then keeps the tenant's id.
  */
 export function AddTenantModal({
   open,
@@ -43,6 +44,7 @@ export function AddTenantModal({
   units,
   tenants,
   onAdd,
+  editTenant,
 }: {
   open: boolean;
   onClose: () => void;
@@ -50,6 +52,7 @@ export function AddTenantModal({
   units: Unit[];
   tenants: Tenant[];
   onAdd: (tenant: Tenant) => void;
+  editTenant?: Tenant | null;
 }) {
   const today = useMemo(() => {
     const d = new Date();
@@ -72,19 +75,23 @@ export function AddTenantModal({
   const [leaseEnd, setLeaseEnd] = useState(nextYear);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Fresh form each time the modal opens.
+  // Fresh form each time the modal opens — pre-filled when editing.
   useEffect(() => {
     if (!open) return;
-    setName("");
-    setIcNumber("");
-    setPhone("");
-    setEmail("");
-    setPropertyId("");
-    setUnitId("");
-    setLeaseStart(today);
-    setLeaseEnd(nextYear);
+    setName(editTenant?.name ?? "");
+    setIcNumber(editTenant?.icNumber ?? "");
+    setPhone(editTenant?.phone ?? "");
+    setEmail(editTenant?.email ?? "");
+    setPropertyId(
+      editTenant
+        ? units.find((u) => u.id === editTenant.unitId)?.propertyId ?? ""
+        : ""
+    );
+    setUnitId(editTenant?.unitId ?? "");
+    setLeaseStart(editTenant?.leaseStart ?? today);
+    setLeaseEnd(editTenant?.leaseEnd ?? nextYear);
     setErrors({});
-  }, [open, today, nextYear]);
+  }, [open, editTenant, units, today, nextYear]);
 
   // Clear a single field's error so each message persists until its own
   // field is fixed.
@@ -117,8 +124,8 @@ export function AddTenantModal({
     [units, propertyId]
   );
   const occupiedUnitIds = useMemo(
-    () => new Set(tenants.map((t) => t.unitId)),
-    [tenants]
+    () => new Set(tenants.filter((t) => t.id !== editTenant?.id).map((t) => t.unitId)),
+    [tenants, editTenant]
   );
 
   if (!open) return null;
@@ -139,7 +146,7 @@ export function AddTenantModal({
       return;
     }
     onAdd({
-      id: `t-${Date.now()}`,
+      id: editTenant?.id ?? `t-${Date.now()}`,
       name: name.trim(),
       icNumber: icNumber.trim(),
       phone: phone.trim(),
@@ -177,10 +184,12 @@ export function AddTenantModal({
         <div className="flex items-center justify-between px-6 py-5 shrink-0" style={{ borderBottom: "1px solid var(--border-soft)" }}>
           <div>
             <h1 id="add-tenant-title" className="text-lg font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
-              Add Tenant
+              {editTenant ? "Edit Tenant" : "Add Tenant"}
             </h1>
             <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-              Who they are, and which property and room they live in.
+              {editTenant
+                ? `Update ${editTenant.name}'s details, placement, or lease.`
+                : "Who they are, and which property and room they live in."}
             </p>
           </div>
           <button
@@ -306,7 +315,9 @@ export function AddTenantModal({
         {/* Footer */}
         <div className="flex flex-wrap gap-2 justify-end px-6 py-4 shrink-0" style={{ borderTop: "1px solid var(--border-soft)", background: "var(--surface)" }}>
           <button type="button" className="ui-btn" onClick={requestClose}>Cancel</button>
-          <button type="submit" form="add-tenant-form" className="ui-btn ui-btn-primary">Add Tenant</button>
+          <button type="submit" form="add-tenant-form" className="ui-btn ui-btn-primary">
+            {editTenant ? "Save Changes" : "Add Tenant"}
+          </button>
         </div>
       </div>
 

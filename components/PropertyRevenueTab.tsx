@@ -3,7 +3,9 @@
 import { useMemo, useState } from "react";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
+import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { deleteResource } from "@/lib/clientApi";
 import {
   MONTHS,
   PAYMENT_METHOD_LABEL,
@@ -29,7 +31,18 @@ function entryTotal(e: RevenueEntry) {
 
 export function PropertyRevenueTab({ property }: { property: Property }) {
   const { revenueEntries, getUnit, getUnitsForProperty } = useData();
+  const toast = useToast();
   const [entries, setEntries] = useState(revenueEntries);
+
+  async function deleteEntry(id: string) {
+    const res = await deleteResource(`/api/revenue/${encodeURIComponent(id)}`);
+    if (res.ok) {
+      setEntries((prev) => prev.filter((x) => x.id !== id));
+      toast.deleted("Revenue entry deleted");
+    } else {
+      toast.info(res.error);
+    }
+  }
   const [entryOpen, setEntryOpen] = useState(false);
   const [fromDate, setFromDate] = useState(`${CUR_YEAR}-01-01`);
   const [toDate, setToDate] = useState(`${CUR_YEAR}-12-31`);
@@ -152,7 +165,7 @@ export function PropertyRevenueTab({ property }: { property: Property }) {
                           label="Revenue actions"
                           items={[
                             { label: "Edit", onClick: () => setEntryOpen(true) },
-                            { label: "Delete", danger: true, onClick: () => setEntries((prev) => prev.filter((x) => x.id !== entry.id)) },
+                            { label: "Delete", danger: true, onClick: () => deleteEntry(entry.id) },
                           ]}
                         />
                       </div>

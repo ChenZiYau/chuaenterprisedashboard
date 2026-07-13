@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ActionMenu } from "@/components/ui";
 import { QuickEntryModal, type QuickEntryTab } from "@/components/QuickEntryModal";
 import { AddPropertyModal } from "@/components/AddPropertyModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PropertyPreviewModal } from "@/components/PropertyPreviewModal";
 import { PropertyCover } from "@/components/PropertyCover";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { deleteResource } from "@/lib/clientApi";
 import { fmtMYR, type Property, type Unit } from "@/lib/data";
 
 /** Plain uppercase text label — no pill background, keeps cards calm. */
@@ -28,12 +31,15 @@ function PropertyCard({
   units,
   onEntry,
   onEdit,
+  onDelete,
 }: {
   property: Property;
   units: Unit[];
   onEntry: (tab: QuickEntryTab) => void;
   onEdit: () => void;
+  onDelete: () => void;
 }) {
+  const router = useRouter();
   const total = units.length;
   const rented = units.filter((u) => u.tenantName).length;
   const occPct = total > 0 ? Math.round((rented / total) * 100) : 0;
@@ -49,6 +55,11 @@ function PropertyCard({
       </Link>
 
       <div className="p-5 flex flex-col gap-4 flex-1">
+        {/* Clickable upper zone — everything above the KPI divider opens the detail page */}
+        <div
+          className="flex flex-col gap-4 cursor-pointer"
+          onClick={() => router.push(`/properties/${property.id}`)}
+        >
         {/* Name + row actions */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -65,7 +76,7 @@ function PropertyCard({
             label={`${property.name} actions`}
             items={[
               { label: "Edit", onClick: onEdit },
-              { label: "Delete", danger: true, onClick: () => {} },
+              { label: "Delete", danger: true, onClick: onDelete },
             ]}
           />
         </div>
@@ -99,6 +110,7 @@ function PropertyCard({
             </div>
           </div>
         )}
+        </div>
 
         {/* Two KPIs only — keeps the footer scannable */}
         <div
@@ -165,6 +177,19 @@ export default function PropertiesPage() {
   // temporarily swaps the preview for the form; only saving there updates it.
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Property | null>(null);
+
+  async function deleteProperty(property: Property) {
+    const res = await deleteResource(`/api/properties/${encodeURIComponent(property.id)}`);
+    if (res.ok) {
+      setProperties((prev) => prev.filter((p) => p.id !== property.id));
+      setUnits((prev) => prev.filter((u) => u.propertyId !== property.id));
+      setDeleteTarget(null);
+      toast.deleted(`Property ${property.name} deleted`);
+    } else {
+      toast.info(res.error);
+    }
+  }
 
   const previewProperty = properties.find((p) => p.id === previewId);
   const editProperty = properties.find((p) => p.id === editId);
@@ -229,6 +254,7 @@ export default function PropertiesPage() {
               units={units.filter((u) => u.propertyId === p.id)}
               onEntry={(tab) => setEntry({ property: p, tab })}
               onEdit={() => setEditId(p.id)}
+              onDelete={() => setDeleteTarget(p)}
             />
           ))}
         </div>
@@ -281,6 +307,18 @@ export default function PropertiesPage() {
           units={units.filter((u) => u.propertyId === previewProperty.id)}
           onEdit={() => setEditId(previewProperty.id)}
           onClose={() => setPreviewId(null)}
+        />
+      )}
+
+      {/* Delete — destructive confirm, cascades to units/tenants/records */}
+      {deleteTarget && (
+        <ConfirmDialog
+          open
+          title="Delete Property"
+          message={`Delete ${deleteTarget.name}? This permanently removes the property together with its units, tenants, revenue and expense records, and cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => deleteProperty(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
         />
       )}
     </div>

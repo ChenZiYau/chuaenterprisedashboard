@@ -3,7 +3,9 @@
 import { useMemo, useState } from "react";
 import { ActionMenu, Pagination, usePagination } from "@/components/ui";
 import { buildReceiptData, openReceiptWindow } from "@/lib/receipt";
+import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { deleteResource } from "@/lib/clientApi";
 import { MONTHS, fmtMYR, type Property, type RevenueEntry } from "@/lib/data";
 
 const CUR_YEAR = 2026;
@@ -14,7 +16,19 @@ function entryTotal(e: RevenueEntry) {
 
 export function PropertyInvoiceTab({ property }: { property: Property }) {
   const { revenueEntries, getUnit, getUnitsForProperty } = useData();
+  const toast = useToast();
   const [entries, setEntries] = useState(revenueEntries);
+
+  async function deleteEntry(entry: RevenueEntry) {
+    // Invoices are revenue rows — deleting one removes the entry.
+    const res = await deleteResource(`/api/revenue/${encodeURIComponent(entry.id)}`);
+    if (res.ok) {
+      setEntries((prev) => prev.filter((x) => x.id !== entry.id));
+      toast.deleted(`Invoice ${entry.invoiceNumber} deleted`);
+    } else {
+      toast.info(res.error);
+    }
+  }
   const [fromMonth, setFromMonth] = useState(`${CUR_YEAR}-01`);
   const [toMonth, setToMonth] = useState(`${CUR_YEAR}-12`);
   const [search, setSearch] = useState("");
@@ -142,7 +156,7 @@ export function PropertyInvoiceTab({ property }: { property: Property }) {
                           label="Invoice actions"
                           items={[
                             { label: "Preview", onClick: () => previewInvoice(entry) },
-                            { label: "Delete", danger: true, onClick: () => setEntries((prev) => prev.filter((x) => x.id !== entry.id)) },
+                            { label: "Delete", danger: true, onClick: () => deleteEntry(entry) },
                           ]}
                         />
                       </div>

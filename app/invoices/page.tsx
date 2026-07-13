@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ActionMenu, Pagination, usePagination } from "@/components/ui";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { deleteResource } from "@/lib/clientApi";
 import { MONTHS, fmtMYR, type RevenueEntry } from "@/lib/data";
 import { buildReceiptData, openReceiptWindow } from "@/lib/receipt";
 
@@ -214,9 +215,15 @@ export default function InvoicesPage() {
                             {
                               label: "Delete",
                               danger: true,
-                              onClick: () => {
-                                setEntries((prev) => prev.filter((x) => x.id !== entry.id));
-                                toast.deleted(`Invoice ${entry.invoiceNumber} deleted`);
+                              onClick: async () => {
+                                // Invoices are revenue rows — deleting one removes the entry.
+                                const res = await deleteResource(`/api/revenue/${encodeURIComponent(entry.id)}`);
+                                if (res.ok) {
+                                  setEntries((prev) => prev.filter((x) => x.id !== entry.id));
+                                  toast.deleted(`Invoice ${entry.invoiceNumber} deleted`);
+                                } else {
+                                  toast.info(res.error);
+                                }
                               },
                             },
                           ]}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 /** Client-side pagination state for an already-filtered list. Resets to page 1
@@ -205,12 +205,30 @@ export function DatePicker({
   const popRef = useRef<HTMLDivElement>(null);
 
   const PANEL_W = 260;
+  // Estimate for the first frame only; place() re-measures the real height
+  // once the panel is in the DOM (header + weekday row + 6-week grid + footer).
+  const PANEL_H_EST = 330;
+  const GAP = 6; // trigger ↔ panel
+  const EDGE = 8; // minimum inset from the viewport edges
 
+  /** Anchor the panel to the trigger: below by default, flipped above when the
+   *  bottom would clip, and clamped inside the viewport either way. Closes if
+   *  the trigger itself has been scrolled out of view. */
   const place = () => {
     const r = btnRef.current?.getBoundingClientRect();
     if (!r) return;
-    const left = Math.min(r.left, window.innerWidth - PANEL_W - 8);
-    setPos({ top: r.bottom + 6, left: Math.max(8, left) });
+    if (r.bottom < 0 || r.top > window.innerHeight) {
+      setOpen(false);
+      return;
+    }
+    const panelH = popRef.current?.offsetHeight ?? PANEL_H_EST;
+    const left = Math.max(EDGE, Math.min(r.left, window.innerWidth - PANEL_W - EDGE));
+    let top = r.bottom + GAP;
+    if (top + panelH > window.innerHeight - EDGE) {
+      const above = r.top - GAP - panelH;
+      top = above >= EDGE ? above : Math.max(EDGE, window.innerHeight - panelH - EDGE);
+    }
+    setPos({ top, left });
   };
 
   useEffect(() => {
@@ -227,7 +245,9 @@ export function DatePicker({
       if (e.key === "Escape") setOpen(false);
     }
     function onScrollResize() {
-      setOpen(false);
+      // Keep the panel docked to its trigger while the page (or a modal body)
+      // scrolls or the window resizes, instead of leaving it floating stale.
+      place();
     }
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -241,6 +261,14 @@ export function DatePicker({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // First placement happens before the panel exists, so it uses the height
+  // estimate; re-place once rendered so flip/clamp use the measured height.
+  const placed = pos !== null;
+  useLayoutEffect(() => {
+    if (open && placed) place();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, placed]);
 
   // Build the 6x7 grid of days for the visible month.
   const cells = useMemo(() => {
@@ -532,7 +560,10 @@ export function ActionMenu({
       <button
         ref={btnRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -579,7 +610,8 @@ export function ActionMenu({
                     }}
                     type="button"
                     role="menuitem"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setOpen(false);
                       item.onClick();
                     }}
