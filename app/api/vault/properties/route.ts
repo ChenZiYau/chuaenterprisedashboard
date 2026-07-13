@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
   try {
     const properties = (await getProperties()).map((p) => ({
       id: p.id,
+      slug: p.slug ?? null,
       name: p.name,
       shortName: p.shortName,
       city: p.city,

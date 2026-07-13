@@ -14,7 +14,17 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    return [
+      // /embed/* pages render inside same-origin iframes (Manage Images
+      // modal), so they allow framing by this app only.
+      {
+        source: "/embed/:path*",
+        headers: securityHeaders.map((h) =>
+          h.key === "X-Frame-Options" ? { ...h, value: "SAMEORIGIN" } : h,
+        ),
+      },
+      { source: "/((?!embed/).*)", headers: securityHeaders },
+    ];
   },
 };
 

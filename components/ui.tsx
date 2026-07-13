@@ -453,17 +453,48 @@ export function DateField({
   );
 }
 
+/** A clickable entry, or "separator" for a divider line between groups. */
+export type ActionMenuItem =
+  | { label: string; onClick: () => void; danger?: boolean }
+  | "separator";
+
 export function ActionMenu({
   label,
   items,
 }: {
   label: string;
-  items: { label: string; onClick: () => void; danger?: boolean }[];
+  items: ActionMenuItem[];
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // Focus the first item once the menu is placed, so arrow keys work
+  // immediately after opening with Enter/Space on the trigger.
+  useEffect(() => {
+    if (open && pos) itemRefs.current[0]?.focus();
+  }, [open, pos]);
+
+  function onMenuKey(e: React.KeyboardEvent) {
+    const buttons = itemRefs.current.filter(Boolean) as HTMLButtonElement[];
+    if (buttons.length === 0) return;
+    const idx = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    let next = -1;
+    if (e.key === "ArrowDown") next = (idx + 1) % buttons.length;
+    else if (e.key === "ArrowUp") next = idx <= 0 ? buttons.length - 1 : idx - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = buttons.length - 1;
+    else if (e.key === "Tab") {
+      setOpen(false);
+      return;
+    }
+    if (next >= 0) {
+      e.preventDefault();
+      buttons[next].focus();
+    }
+  }
 
   const place = () => {
     const r = btnRef.current?.getBoundingClientRect();
@@ -519,30 +550,46 @@ export function ActionMenu({
             <div
               ref={menuRef}
               role="menu"
-              className="fixed z-[80] w-32 rounded-lg border overflow-hidden"
+              aria-label={label}
+              onKeyDown={onMenuKey}
+              className="fixed z-[80] min-w-40 rounded-lg border overflow-hidden py-1"
               style={{
                 top: pos.top,
                 right: pos.right,
                 background: "var(--surface)",
                 borderColor: "var(--border-soft)",
                 boxShadow: "0 16px 40px rgba(0,0,0,0.22)",
+                transformOrigin: "top right",
+                animation: "uiMenuPop 130ms cubic-bezier(.2,.7,.2,1)",
               }}
             >
-              {items.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setOpen(false);
-                    item.onClick();
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs transition hover:bg-[var(--surface-muted)]"
-                  style={{ color: item.danger ? "var(--danger)" : "var(--text-secondary)" }}
-                >
-                  {item.label}
-                </button>
-              ))}
+              {items.map((item, i) =>
+                item === "separator" ? (
+                  <div
+                    key={`sep-${i}`}
+                    role="separator"
+                    className="my-1 h-px"
+                    style={{ background: "var(--border-soft)" }}
+                  />
+                ) : (
+                  <button
+                    key={item.label}
+                    ref={(el) => {
+                      itemRefs.current[i] = el;
+                    }}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpen(false);
+                      item.onClick();
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs transition hover:bg-[var(--surface-muted)] focus-visible:bg-[var(--surface-muted)] outline-none"
+                    style={{ color: item.danger ? "var(--danger)" : "var(--text-secondary)" }}
+                  >
+                    {item.label}
+                  </button>
+                ),
+              )}
             </div>,
             document.body
           )

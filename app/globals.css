@@ -213,3 +213,17 @@ body {
     box-shadow: inset 2px 0 0 var(--accent);
   }
 }
+
+/* Dropdown / modal entrance animations (ActionMenu, share-page modals). */
+@keyframes uiMenuPop {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes uiFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes uiModalPop {
+  from { transform: scale(0.97) translateY(4px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}

@@ -30,6 +30,7 @@ function num(v: unknown): number | null {
 function mapProperty(r: Record<string, unknown>): Property {
   return {
     id: r.id as string,
+    slug: (r.slug as string) ?? undefined,
     name: (r.name as string) ?? "",
     shortName: (r.short_name as string) ?? (r.name as string) ?? "",
     city: (r.city as string) ?? "",

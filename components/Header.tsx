@@ -3,8 +3,6 @@
 import { usePathname } from "next/navigation";
 import { useMobileNav } from "./MobileNavContext";
 
-const VAULT_URL = (process.env.NEXT_PUBLIC_VAULT_URL ?? "").replace(/\/+$/, "");
-
 const titles: Record<string, string> = {
   "/properties": "Properties",
   "/tenants": "Tenants",
@@ -59,22 +57,6 @@ export function Header() {
         {resolveTitle(pathname)}
       </h1>
 
-      {VAULT_URL && (
-        <a
-          href={VAULT_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="ui-btn shrink-0"
-          title="Open the public Image Vault in a new tab"
-        >
-          Image Vault
-          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M15 3h6v6" />
-            <path d="M10 14 21 3" />
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-          </svg>
-        </a>
-      )}
     </header>
   );
 }

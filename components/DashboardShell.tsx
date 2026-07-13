@@ -8,8 +8,9 @@ import { Header } from "./Header";
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  // The login screen renders standalone, without the dashboard chrome.
-  if (pathname === "/login") return <>{children}</>;
+  // The login screen and /embed/* iframe pages render standalone, without
+  // the dashboard chrome (sidebar + sticky header).
+  if (pathname === "/login" || pathname.startsWith("/embed/")) return <>{children}</>;
 
   return (
     <MobileNavProvider>

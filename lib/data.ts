@@ -57,6 +57,8 @@ export const PROPERTY_STATUS_LABEL: Record<PropertyStatus, string> = {
 
 export type Property = {
   id: string;
+  /** Custom share-link slug (vault gallery URL path). Falls back to `id`. */
+  slug?: string;
   name: string;
   shortName: string;
   city: string;
