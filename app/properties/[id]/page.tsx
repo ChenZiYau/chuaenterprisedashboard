@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AddPropertyModal } from "@/components/AddPropertyModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PropertyRevenueTab } from "@/components/PropertyRevenueTab";
 import { PropertyExpensesTab } from "@/components/PropertyExpensesTab";
 import { PropertyInvoiceTab } from "@/components/PropertyInvoiceTab";
@@ -56,13 +57,14 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const { id } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { getProperty, getUnitsForProperty, revenueEntries, expenseEntries } = useData();
+  const { getProperty, getUnitsForProperty, revenueEntries, expenseEntries, hideProperty, unhideProperty } = useData();
   const toast = useToast();
 
   const [property, setProperty] = useState<Property | undefined>(() => getProperty(id));
   const [units, setUnits] = useState<Unit[]>(() => getUnitsForProperty(id));
   const [imgBroken, setImgBroken] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   // "?tab=images" (from Share → Manage Photos) opens straight on that tab.
   const [tab, setTab] = useState<TabKey>(() => {
     const t = searchParams.get("tab");
@@ -91,6 +93,27 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     );
   }
 
+  /** Confirmed trash: hide the property everywhere and leave for the list page.
+   *  The real DELETE only fires when the undo toast closes without "Undo". */
+  function moveToTrash(p: Property) {
+    setTrashOpen(false);
+    hideProperty(p.id);
+    router.push("/properties");
+    toast.undoable(`${p.name} moved to Trash. In case it was accidental, you can undo.`, {
+      onUndo: () => unhideProperty(p.id),
+      onCommit: async () => {
+        const res = await fetch(`/api/properties/${encodeURIComponent(p.id)}`, { method: "DELETE" });
+        if (res.ok) {
+          router.refresh();
+        } else {
+          unhideProperty(p.id);
+          const data = await res.json().catch(() => ({}));
+          toast.info((data as { error?: string }).error ?? "Could not delete the property.");
+        }
+      },
+    });
+  }
+
   const status = property.status ?? "active";
   const rentedCount = units.filter((u) => u.tenantName).length;
   const totalUnits = units.length;
@@ -106,7 +129,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
           <BackLink />
           <p className="text-sm font-medium truncate mt-0.5" style={{ color: "var(--text-primary)" }}>{property.name}</p>
         </div>
-        <button type="button" className="ui-btn shrink-0" onClick={() => router.push("/properties")}>Move to Trash</button>
+        <button type="button" className="ui-btn shrink-0" onClick={() => setTrashOpen(true)}>Move to Trash</button>
       </div>
 
       {/* Cover with overlaid property details */}
@@ -169,6 +192,16 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       {tab === "expenses" && <PropertyExpensesTab property={property} />}
       {tab === "invoice" && <PropertyInvoiceTab property={property} />}
       {tab === "images" && <PropertyImagesTab property={property} />}
+
+      {/* Move to Trash — destructive confirm, delete cascades to units/tenants/records */}
+      <ConfirmDialog
+        open={trashOpen}
+        title="Move to Trash"
+        message={`Move ${property.name} to Trash? This removes the property together with its units, tenants, revenue and expense records. You will have a few seconds to undo.`}
+        confirmLabel="Move to Trash"
+        onConfirm={() => moveToTrash(property)}
+        onClose={() => setTrashOpen(false)}
+      />
 
       {/* Edit modal */}
       <AddPropertyModal

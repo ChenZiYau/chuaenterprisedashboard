@@ -134,7 +134,7 @@ function ShareCard({
 }
 
 export default function SharePage() {
-  const { properties: liveProperties } = useData();
+  const { properties: liveProperties, hideProperty, unhideProperty } = useData();
   const toast = useToast();
 
   const [search, setSearch] = useState("");
@@ -174,18 +174,32 @@ export default function SharePage() {
     );
   }, [properties, search]);
 
-  async function deleteProperty(property: Property) {
-    const res = await fetch(`/api/properties/${encodeURIComponent(property.id)}`, {
-      method: "DELETE",
+  /** Confirmed delete: hide the card immediately; the real DELETE only fires
+   *  when the undo toast closes without "Undo". */
+  function deleteProperty(property: Property) {
+    const snapshot = properties;
+    setModal(null);
+    setProperties((prev) => prev.filter((p) => p.id !== property.id));
+    hideProperty(property.id);
+
+    const restore = () => {
+      setProperties(snapshot);
+      unhideProperty(property.id);
+    };
+
+    toast.undoable(`${property.name} moved to Trash. In case it was accidental, you can undo.`, {
+      onUndo: restore,
+      onCommit: async () => {
+        const res = await fetch(`/api/properties/${encodeURIComponent(property.id)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          restore();
+          const data = await res.json().catch(() => ({}));
+          toast.info((data as { error?: string }).error ?? "Could not delete the property.");
+        }
+      },
     });
-    if (res.ok) {
-      setProperties((prev) => prev.filter((p) => p.id !== property.id));
-      setModal(null);
-      toast.deleted(`Property ${property.name} deleted`);
-    } else {
-      const data = await res.json().catch(() => ({}));
-      toast.info((data as { error?: string }).error ?? "Could not delete the property.");
-    }
   }
 
   return (
@@ -275,7 +289,7 @@ export default function SharePage() {
         <ConfirmDialog
           open
           title="Delete Property"
-          message={`Delete ${modal.property.name}? This permanently removes the property together with its units, tenants, revenue and expense records, and cannot be undone.`}
+          message={`Delete ${modal.property.name}? This permanently removes the property together with its units, tenants, revenue and expense records. You will have a few seconds to undo.`}
           confirmLabel="Delete"
           onConfirm={() => deleteProperty(modal.property)}
           onClose={() => setModal(null)}
