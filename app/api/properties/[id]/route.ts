@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { mapProperty, mapUnit } from "@/lib/db";
-import { parsePropertyPayload, propertyRow, unitRow } from "@/lib/propertyRows";
+import { parsePropertyPayload, propertyRow, resolveSlug, slugTaken, unitRow } from "@/lib/propertyRows";
 
 // Deletes a property and everything that hangs off it (tenants, revenue,
 // expenses, units). The FKs have no ON DELETE CASCADE, so the dependents are
@@ -31,7 +31,20 @@ export async function PUT(
     return NextResponse.json({ error: "Property name is required." }, { status: 400 });
   }
 
+  const resolved = resolveSlug(payload.property);
+  if ("error" in resolved) {
+    return NextResponse.json({ error: resolved.error }, { status: 400 });
+  }
+  payload.property.slug = resolved.slug;
+
   try {
+    if (await slugTaken(resolved.slug, id)) {
+      return NextResponse.json(
+        { error: `The slug "${resolved.slug}" is already used by another property.` },
+        { status: 409 },
+      );
+    }
+
     const { data: pRows, error: pErr } = await supabaseAdmin
       .from("properties")
       .update({

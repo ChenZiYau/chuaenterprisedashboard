@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ImageCropperModal } from "@/components/ImageCropperModal";
 import { useData } from "@/lib/DataContext";
+import { slugError, slugify } from "@/lib/slug";
 import {
   PROPERTY_STATUS_LABEL,
   PROPERTY_TYPE_LABEL,
@@ -17,6 +18,10 @@ import {
 const labelCls = "block text-[10px] font-semibold uppercase tracking-[0.14em] mb-1.5";
 const labelStyle: React.CSSProperties = { color: "var(--text-faint)" };
 const fieldCls = "ui-field w-full";
+
+const VAULT_URL =
+  (process.env.NEXT_PUBLIC_VAULT_URL ?? "").replace(/\/+$/, "") ||
+  "https://chuaimage.vercel.app";
 
 const RENTAL_MODELS: { value: RentalModel; label: string }[] = [
   { value: "room_rental", label: "Room rental" },
@@ -67,6 +72,9 @@ export function AddPropertyModal({
   const [wholeTenant, setWholeTenant] = useState("");
 
   const [name, setName] = useState("");
+  // Share-link slug (vault URL path). Mirrors the name until hand-edited.
+  const [slug, setSlug] = useState("");
+  const [slugTouched, setSlugTouched] = useState(false);
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
@@ -121,6 +129,9 @@ export function AddPropertyModal({
       setWholeTenant("");
     }
     setName(p?.name ?? "");
+    setSlug(p?.slug ?? slugify(p?.name ?? ""));
+    // An existing custom slug should not be overwritten by name edits.
+    setSlugTouched(!!p?.slug && p.slug !== slugify(p?.name ?? ""));
     setAddress(p?.address ?? "");
     setCity(p?.city ?? "");
     setState(p?.state ?? "");
@@ -196,6 +207,13 @@ export function AddPropertyModal({
     if (saving) return;
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = "Enter a property name.";
+    // Empty slug falls back to the name; slugify also tidies hand-typed input
+    // (trailing hyphens, double hyphens).
+    const finalSlug = slugify(slug) || slugify(name);
+    if (name.trim()) {
+      const slugErr = slugError(finalSlug);
+      if (slugErr) errs.slug = slugErr;
+    }
     if (isRoom) {
       if (rooms.length === 0) errs.rooms = "Add at least one room.";
       else if (rooms.some((r) => !r.name.trim())) errs.rooms = "Every room needs a name.";
@@ -209,6 +227,7 @@ export function AddPropertyModal({
     const property: Property = {
       id: pid,
       name: name.trim(),
+      slug: finalSlug,
       shortName: name.trim(),
       city: city.trim(),
       rentalModel,
@@ -515,16 +534,49 @@ export function AddPropertyModal({
             {/* ---- Right column: property record ---- */}
             <div className="flex flex-col gap-8">
               <Group title="Property details">
-                <Row label="Property Name" required>
-                  <input
-                    className={fieldCls}
-                    style={errors.name ? { borderColor: "var(--danger)" } : undefined}
-                    placeholder="e.g. Platinum Suites"
-                    value={name}
-                    onChange={(e) => { setName(e.target.value); clearError("name"); }}
-                  />
-                  {errors.name && <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>{errors.name}</p>}
-                </Row>
+                <div className="flex flex-col gap-4">
+                  <Row label="Property Name" required>
+                    <input
+                      className={fieldCls}
+                      style={errors.name ? { borderColor: "var(--danger)" } : undefined}
+                      placeholder="e.g. Platinum Suites"
+                      value={name}
+                      onChange={(e) => {
+                        setName(e.target.value);
+                        // The slug shadows the name until it is hand-edited.
+                        if (!slugTouched) setSlug(slugify(e.target.value));
+                        clearError("name");
+                        clearError("slug");
+                      }}
+                    />
+                    {errors.name && <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>{errors.name}</p>}
+                  </Row>
+                  <Row label="Slug Name">
+                    <input
+                      className={fieldCls}
+                      style={errors.slug ? { borderColor: "var(--danger)" } : undefined}
+                      placeholder={slugify(name) || "e.g. 27-menjalara"}
+                      value={slug}
+                      onChange={(e) => {
+                        // Live-sanitise: lowercase, spaces become hyphens, and
+                        // anything outside a-z / 0-9 / - is dropped.
+                        setSlug(e.target.value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""));
+                        setSlugTouched(true);
+                        clearError("slug");
+                      }}
+                      onBlur={() => {
+                        // Cleared field falls back to shadowing the name again.
+                        if (!slug.trim()) {
+                          setSlug(slugify(name));
+                          setSlugTouched(false);
+                        }
+                      }}
+                    />
+                    <p className="text-xs mt-1 break-all" style={{ color: errors.slug ? "var(--danger)" : "var(--text-faint)" }}>
+                      {errors.slug ?? `Share link: ${VAULT_URL}/p/${slugify(slug) || slugify(name) || "..."}`}
+                    </p>
+                  </Row>
+                </div>
               </Group>
 
               <Group title="Location">

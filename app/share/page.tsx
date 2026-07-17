@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { PropertyCover } from "@/components/PropertyCover";
 import { ActionMenu } from "@/components/ui";
-import { ChangeLinkModal, copyText } from "@/components/ChangeLinkModal";
+import { copyText } from "@/lib/clipboard";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { IframeModal } from "@/components/IframeModal";
 import { useToast } from "@/components/Toast";
@@ -21,9 +21,7 @@ const VAULT_URL =
   "https://chuaimage.vercel.app";
 
 type CardModal =
-  | { kind: "link"; property: Property }
   | { kind: "images"; property: Property }
-  | { kind: "preview"; property: Property }
   | { kind: "delete"; property: Property };
 
 /** Public customer-facing gallery link (custom slug wins over the id). */
@@ -77,7 +75,6 @@ function ShareCard({
           <ActionMenu
             label={`${property.name} actions`}
             items={[
-              { label: "Change Link", onClick: () => onOpen({ kind: "link", property }) },
               { label: "Manage Images", onClick: () => onOpen({ kind: "images", property }) },
               "separator",
               { label: "Delete Property", danger: true, onClick: () => onOpen({ kind: "delete", property }) },
@@ -118,15 +115,18 @@ function ShareCard({
             </svg>
             Copy Link
           </button>
-          <button
-            type="button"
-            onClick={() => onOpen({ kind: "preview", property })}
+          {/* Opens the live vault gallery in a new tab — iframing it is
+              blocked by the vault's frame-ancestors policy. */}
+          <a
+            href={galleryLink(property, slug)}
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-xs font-medium transition hover:underline"
             style={{ color: "var(--accent)" }}
             title="Preview what customers see"
           >
             Preview →
-          </button>
+          </a>
         </div>
       </div>
     </div>
@@ -248,38 +248,12 @@ export default function SharePage() {
         </div>
       )}
 
-      {/* Change Link — slug editor; uniqueness enforced server-side */}
-      {modal?.kind === "link" && (
-        <ChangeLinkModal
-          open
-          property={modal.property}
-          baseUrl={VAULT_URL}
-          currentSlug={modal.property.slug}
-          onClose={() => setModal(null)}
-          onSaved={(slug) =>
-            setProperties((prev) =>
-              prev.map((p) => (p.id === modal.property.id ? { ...p, slug } : p))
-            )
-          }
-        />
-      )}
-
       {/* Manage Images — same-origin embed of the existing PropertyImagesTab */}
       {modal?.kind === "images" && (
         <IframeModal
           open
           title={`Manage Images — ${modal.property.shortName || modal.property.name}`}
           src={`/embed/images/${encodeURIComponent(modal.property.id)}`}
-          onClose={() => setModal(null)}
-        />
-      )}
-
-      {/* Preview — the real customer-facing vault gallery, framed */}
-      {modal?.kind === "preview" && (
-        <IframeModal
-          open
-          title={`Preview — ${modal.property.shortName || modal.property.name}`}
-          src={`${galleryLink(modal.property, modal.property.slug)}?preview=true`}
           onClose={() => setModal(null)}
         />
       )}

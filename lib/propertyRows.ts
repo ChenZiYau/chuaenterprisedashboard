@@ -1,4 +1,6 @@
 import "server-only";
+import { supabaseAdmin } from "@/lib/supabaseServer";
+import { normalizeSlug, slugError, slugify } from "@/lib/slug";
 import type { Property, Unit } from "@/lib/data";
 
 // Payload the Add/Edit Property form sends. Ids on units are either real
@@ -16,11 +18,29 @@ export function parsePropertyPayload(body: unknown): PropertyPayload | null {
   return { property: p, units: Array.isArray(b?.units) ? b.units : [] };
 }
 
+/** Canonical share-link slug for the payload: the submitted slug, falling
+ *  back to one derived from the name. Returns an error string when invalid. */
+export function resolveSlug(p: Property): { slug: string } | { error: string } {
+  const slug = normalizeSlug(typeof p.slug === "string" ? p.slug : "") || slugify(p.name);
+  const invalid = slugError(slug);
+  return invalid ? { error: `Slug name: ${invalid}` } : { slug };
+}
+
+/** True when another property already uses `slug` (unique per lower(slug)). */
+export async function slugTaken(slug: string, excludeId?: string): Promise<boolean> {
+  let q = supabaseAdmin.from("properties").select("id").ilike("slug", slug).limit(1);
+  if (excludeId) q = q.neq("id", excludeId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
 /** camelCase form values -> properties table row (no id — the DB owns it). */
 export function propertyRow(p: Property, units: Unit[]) {
   const name = p.name.trim();
   return {
     name,
+    slug: normalizeSlug(p.slug ?? "") || null,
     short_name: p.shortName?.trim() || name,
     city: p.city?.trim() ?? "",
     rental_model: p.rentalModel === "whole_unit" ? "whole_unit" : "room_rental",

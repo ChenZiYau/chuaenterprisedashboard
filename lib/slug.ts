@@ -9,6 +9,16 @@ export function normalizeSlug(input: string): string {
   return input.trim().toLowerCase();
 }
 
+/** Derive a slug from a free-text name: "27 Menjalara" -> "27-menjalara". */
+export function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "") // strip diacritics left by NFKD
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 /** Returns an error message for an invalid slug, or null when valid. */
 export function slugError(slug: string): string | null {
   if (slug.length < SLUG_MIN) return `Use at least ${SLUG_MIN} characters.`;

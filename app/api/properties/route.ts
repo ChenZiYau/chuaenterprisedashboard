@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { mapProperty, mapUnit } from "@/lib/db";
-import { parsePropertyPayload, propertyRow, unitRow } from "@/lib/propertyRows";
+import { parsePropertyPayload, propertyRow, resolveSlug, slugTaken, unitRow } from "@/lib/propertyRows";
 
 // Creates a property together with its units. The database generates the real
 // uuids; the client-side placeholder ids in the payload are ignored and the
@@ -22,7 +22,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Property name is required." }, { status: 400 });
   }
 
+  const resolved = resolveSlug(payload.property);
+  if ("error" in resolved) {
+    return NextResponse.json({ error: resolved.error }, { status: 400 });
+  }
+  payload.property.slug = resolved.slug;
+
   try {
+    if (await slugTaken(resolved.slug)) {
+      return NextResponse.json(
+        { error: `The slug "${resolved.slug}" is already used by another property.` },
+        { status: 409 },
+      );
+    }
+
     const { data: pRow, error: pErr } = await supabaseAdmin
       .from("properties")
       .insert(propertyRow(payload.property, payload.units))
