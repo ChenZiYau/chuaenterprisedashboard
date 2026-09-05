@@ -47,8 +47,8 @@ function blankRoom(): RoomDraft {
 
 /**
  * Add / Edit Property popup — rental model, cover image (upload or link, both
- * croppable to the card's 5:2 strip), a dynamic room list for room rentals
- * ("+ Add Room"), then the property record.
+ * croppable to any aspect via the cropper), a dynamic room list for room
+ * rentals ("+ Add Room"), then the property record.
  */
 export function AddPropertyModal({
   open,
@@ -400,8 +400,8 @@ export function AddPropertyModal({
                       <img
                         src={cover}
                         alt="Cover preview"
-                        className="w-full aspect-[5/2] object-cover rounded-lg"
-                        style={{ border: "1px solid var(--border-soft)" }}
+                        className="w-full max-h-56 object-contain rounded-lg"
+                        style={{ border: "1px solid var(--border-soft)", background: "var(--surface-muted)" }}
                       />
                       <button
                         type="button"

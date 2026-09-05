@@ -214,7 +214,7 @@ export default function PropertiesPage() {
         <input
           type="search"
           className="ui-input w-auto min-w-[220px] flex-1 max-w-[360px]"
-          placeholder="Search name or city..."
+          placeholder="Search Property..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />

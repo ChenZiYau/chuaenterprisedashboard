@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
+import { saveResource } from "@/lib/clientApi";
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_LABEL,
@@ -79,6 +81,7 @@ export function QuickEntryModal({
 }) {
   const { tenants, revenueEntries: seedRevenue, expenseEntries: seedExpenses } = useData();
   const toast = useToast();
+  const router = useRouter();
   const [tab, setTab] = useState<QuickEntryTab>(initialTab);
   const now = useMemo(() => new Date(), []);
   const [year, setYear] = useState(now.getFullYear());
@@ -159,7 +162,12 @@ export function QuickEntryModal({
   if (!open) return null;
 
   const showRoomTabs = isRoomBased && activeUnits.length > 1;
-  const handleSaved = () => setTimeout(onClose, 700);
+  const handleSaved = () => {
+    // Re-fetch the server-side dashboard data so banner totals (Revenue /
+    // Expenses / Net PnL) reflect the newly persisted rows.
+    router.refresh();
+    setTimeout(onClose, 700);
+  };
 
   const datePanel = (
     <div className="flex flex-col gap-3">
@@ -297,13 +305,20 @@ export function QuickEntryModal({
             <ExpenseForm
               key={`${activeProperty.id}:${year}-${month}`}
               propertyId={activeProperty.id}
-              units={isRoomBased ? activeUnits : []}
+              units={activeUnits}
+              roomBased={isRoomBased}
               year={year}
               month={month}
-              onSave={(list) => {
-                setExpenses((prev) => [...list, ...prev]);
+              onSave={async (list) => {
+                const res = await saveResource<{ entries: ExpenseEntry[] }>("/api/expenses", "POST", { entries: list });
+                if (!res.ok) {
+                  toast.info(res.error);
+                  return false;
+                }
+                setExpenses((prev) => [...res.data.entries, ...prev]);
                 toast.created(list.length > 1 ? `${list.length} expenses created` : "Expense created");
                 handleSaved();
+                return true;
               }}
               datePanel={datePanel}
             />
@@ -344,6 +359,8 @@ function RevenueForm({
   const unitId = unit?.id ?? "";
   const existing = entries.find((e) => e.unitId === unitId && e.year === year && e.month === month);
   const firstOfMonth = `${year}-${String(month).padStart(2, "0")}-01`;
+  // Revenue only makes sense for an occupied room / unit.
+  const vacant = !unit?.tenantName;
 
   const [rental, setRental] = useState(existing ? String(existing.rental) : unit?.rentalRate ? String(unit.rentalRate) : "");
   const [elecUnits, setElecUnits] = useState(existing?.electricityReading != null ? String(existing.electricityReading) : "");
@@ -386,6 +403,7 @@ function RevenueForm({
   function validate() {
     const e: Record<string, string> = {};
     if (!unitId) e.unitId = "Select a room or unit.";
+    if (vacant) e.unitId = "This room has no tenant — revenue can't be recorded.";
     if (!rental || rentalNum <= 0) e.rental = "Enter a rental amount greater than 0.";
     if (!payDate) e.payDate = "Enter a payment date.";
     if (payMethod === "other" && !customPayMethod.trim()) e.customPayMethod = "Describe the payment method.";
@@ -449,7 +467,16 @@ function RevenueForm({
         <div className="flex flex-col gap-4 px-5 py-4 overflow-y-auto min-h-0 ui-scroll">
           {contextSlot}
 
-          {existing && (
+          {vacant && (
+            <div className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs" style={{ background: "rgba(211,84,84,0.10)", border: "1px solid var(--danger)", color: "var(--danger)" }}>
+              <span className="mt-px">&#9888;</span>
+              <span>
+                {unit ? `${unit.name} is vacant` : "No room selected"} — assign a tenant to this {unit?.name === "Whole Unit" ? "unit" : "room"} before recording revenue.
+              </span>
+            </div>
+          )}
+
+          {!vacant && existing && (
             <div className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs" style={{ background: "rgba(224,162,61,0.10)", border: "1px solid var(--warning)", color: "var(--warning)" }}>
               <span className="mt-px">&#9888;</span>
               <span>An entry already exists for {MONTHS_FULL[month - 1]} {year}. Saving will update it.</span>
@@ -612,8 +639,8 @@ function RevenueForm({
           <span className="text-xl font-bold tabular-nums" style={{ color: "var(--accent)" }}>{fmtMYR(totalAmount)}</span>
         </div>
         <div className="flex items-center justify-end gap-2">
-          <button type="button" className="ui-btn justify-center" onClick={() => handleSave(false)}>Save only</button>
-          <button type="button" className="ui-btn ui-btn-primary justify-center" onClick={() => handleSave(true)}>
+          <button type="button" className="ui-btn justify-center" disabled={vacant} style={{ opacity: vacant ? 0.55 : 1 }} onClick={() => handleSave(false)}>Save only</button>
+          <button type="button" className="ui-btn ui-btn-primary justify-center" disabled={vacant} style={{ opacity: vacant ? 0.55 : 1 }} onClick={() => handleSave(true)}>
             {existing ? "Update & invoice" : "Save & invoice"}
           </button>
         </div>
@@ -630,7 +657,6 @@ type ExpenseItem = {
   description: string;
   amount: string;
   date: string;
-  fixed: boolean;
 };
 
 let _seq = 0;
@@ -640,57 +666,82 @@ function todayISO() {
 }
 function newItem(): ExpenseItem {
   _seq += 1;
-  return { key: `qe-item-${_seq}`, category: "maintenance", description: "", amount: "", date: todayISO(), fixed: false };
+  return { key: `qe-item-${_seq}`, category: "maintenance", description: "", amount: "", date: todayISO() };
 }
 
 function ExpenseForm({
   propertyId,
   units,
+  roomBased,
   year,
   month,
   onSave,
   datePanel,
 }: {
   propertyId: string;
+  /** All of the property's units — used for the room selector (room rentals)
+   *  and for the tenant-occupancy check. */
   units: Unit[];
+  roomBased: boolean;
   year: number;
   month: number;
-  onSave: (entries: ExpenseEntry[]) => void;
+  onSave: (entries: ExpenseEntry[]) => Promise<boolean>;
   datePanel: React.ReactNode;
 }) {
   const [unitId, setUnitId] = useState("");
   const [items, setItems] = useState<ExpenseItem[]>([newItem()]);
   const [savedCount, setSavedCount] = useState(0);
+  const [saving, setSaving] = useState(false);
 
-  const showRoomSelector = units.length > 1;
+  const showRoomSelector = roomBased && units.length > 1;
   const validItems = items.filter((it) => (parseFloat(it.amount) || 0) > 0);
   const total = validItems.reduce((s, it) => s + (parseFloat(it.amount) || 0), 0);
-  const canSave = validItems.length > 0;
+
+  // Expenses may only be recorded against an occupied room / unit. A specific
+  // room needs its own tenant; "All" (whole property) and whole-unit
+  // properties need at least one tenant somewhere in the property.
+  const selectedUnit = units.find((u) => u.id === unitId);
+  const anyTenant = units.some((u) => !!u.tenantName);
+  const vacancyMsg =
+    roomBased && showRoomSelector && unitId
+      ? selectedUnit?.tenantName
+        ? null
+        : `${selectedUnit?.name ?? "This room"} is vacant — assign a tenant before recording an expense for it.`
+      : anyTenant
+        ? null
+        : `This ${roomBased ? "property has no tenants" : "unit has no tenant"} — assign a tenant before recording expenses.`;
+
+  const canSave = validItems.length > 0 && !vacancyMsg;
 
   function updateItem(key: string, patch: Partial<ExpenseItem>) {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
     if (savedCount) setSavedCount(0);
   }
 
-  function handleSave() {
-    if (!canSave) return;
-    setSavedCount(validItems.length);
-    onSave(
-      validItems.map((it, i) => ({
-        id: `e-${Date.now()}-${i}`,
-        propertyId,
-        unitId: showRoomSelector ? unitId || null : null,
-        month,
-        year,
-        expenseDate: it.date || todayISO(),
-        category: it.category,
-        description: it.description.trim() || null,
-        type: null,
-        amount: parseFloat(it.amount) || 0,
-        fixed: it.fixed,
-      }))
-    );
-    setItems([newItem()]);
+  async function handleSave() {
+    if (!canSave || saving) return;
+    setSaving(true);
+    try {
+      const ok = await onSave(
+        validItems.map((it, i) => ({
+          id: `e-${Date.now()}-${i}`,
+          propertyId,
+          unitId: showRoomSelector ? unitId || null : null,
+          month,
+          year,
+          expenseDate: it.date || todayISO(),
+          category: it.category,
+          description: it.description.trim() || null,
+          type: null,
+          amount: parseFloat(it.amount) || 0,
+        }))
+      );
+      if (!ok) return; // keep the form intact so the user can retry
+      setSavedCount(validItems.length);
+      setItems([newItem()]);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -712,6 +763,13 @@ function ExpenseForm({
                 onSelect={setUnitId}
                 allOption={{ id: "", label: "All", title: "Whole property / shared" }}
               />
+            </div>
+          )}
+
+          {vacancyMsg && (
+            <div className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs" style={{ background: "rgba(211,84,84,0.10)", border: "1px solid var(--danger)", color: "var(--danger)" }}>
+              <span className="mt-px">&#9888;</span>
+              <span>{vacancyMsg}</span>
             </div>
           )}
 
@@ -771,17 +829,6 @@ function ExpenseForm({
                 />
               </div>
 
-              {/* Fixed toggle — drives the green vs yellow month colouring */}
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox" checked={it.fixed}
-                  onChange={(e) => updateItem(it.key, { fixed: e.target.checked })}
-                  style={{ accentColor: "var(--success)", width: 14, height: 14 }}
-                />
-                <span className="text-xs font-medium" style={{ color: it.fixed ? "var(--success)" : "var(--text-muted)" }}>
-                  Fixed / resolved
-                </span>
-              </label>
             </div>
           ))}
 
@@ -812,10 +859,10 @@ function ExpenseForm({
         </div>
         <div className="flex items-center justify-end gap-2">
           <button
-            type="button" className="ui-btn ui-btn-primary justify-center" disabled={!canSave}
-            style={{ opacity: !canSave ? 0.55 : 1 }} onClick={handleSave}
+            type="button" className="ui-btn ui-btn-primary justify-center" disabled={!canSave || saving}
+            style={{ opacity: !canSave || saving ? 0.55 : 1 }} onClick={handleSave}
           >
-            {validItems.length > 1 ? `Save ${validItems.length} Expenses` : "Save Expenses"}
+            {saving ? "Saving…" : validItems.length > 1 ? `Save ${validItems.length} Expenses` : "Save Expenses"}
           </button>
         </div>
       </div>
@@ -875,14 +922,9 @@ function MonthGrid({
           let dimmed = false;
 
           if (mode === "expense") {
-            // No expense → neutral; any unfixed → yellow; all fixed → green.
-            const monthExp = expenseEntries.filter((e) => e.month === m);
-            if (monthExp.length > 0) {
-              if (monthExp.every((e) => e.fixed)) {
-                bg = "rgba(47,158,111,0.14)"; color = "var(--success)"; border = "var(--success)";
-              } else {
-                bg = "rgba(224,162,61,0.16)"; color = "var(--warning)"; border = "var(--warning)";
-              }
+            // Months with at least one recorded expense are tinted red.
+            if (expenseEntries.some((e) => e.month === m)) {
+              bg = "rgba(211,84,84,0.12)"; color = "var(--danger)"; border = "var(--danger)";
             }
           } else {
             // Green (paid) / yellow (unpaid & due) / neutral (future or pre-move-in).

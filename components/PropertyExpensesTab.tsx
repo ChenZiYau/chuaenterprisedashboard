@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
 import { useToast } from "@/components/Toast";
@@ -14,6 +14,12 @@ export function PropertyExpensesTab({ property }: { property: Property }) {
   const { expenseEntries, getUnit, getUnitsForProperty } = useData();
   const toast = useToast();
   const [entries, setEntries] = useState(expenseEntries);
+
+  // Re-seed whenever the server data refreshes (e.g. after Quick Entry saves
+  // an expense and triggers router.refresh()), so the list and total update.
+  useEffect(() => {
+    setEntries(expenseEntries);
+  }, [expenseEntries]);
 
   async function deleteEntry(id: string) {
     const res = await deleteResource(`/api/expenses/${encodeURIComponent(id)}`);

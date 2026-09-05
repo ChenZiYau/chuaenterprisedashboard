@@ -90,7 +90,7 @@ function mapRevenue(r: Record<string, unknown>): RevenueEntry {
   };
 }
 
-function mapExpense(r: Record<string, unknown>): ExpenseEntry {
+export function mapExpense(r: Record<string, unknown>): ExpenseEntry {
   const recurring = Boolean(r.is_recurring);
   const irregular = Boolean(r.is_irregular);
   return {
