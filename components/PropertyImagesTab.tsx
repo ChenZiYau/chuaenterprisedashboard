@@ -68,27 +68,37 @@ function cardFromEntry(e: ImageEntry): Card {
 }
 
 export function PropertyImagesTab({ property }: { property: Property }) {
+  return <PropertyImagesEditor key={property.id} property={property} />;
+}
+
+function PropertyImagesEditor({ property }: { property: Property }) {
   const toast = useToast();
   const propertyId = property.id;
 
   const [cards, setCards] = useState<Card[]>([newCard()]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const loaded = useRef(false);
+  const savePending = useRef(false);
   const [saving, setSaving] = useState(false);
   const [cropCardId, setCropCardId] = useState<string | null>(null);
 
   // Load saved images for this property from the vault (via proxy).
   useEffect(() => {
     let active = true;
+    loaded.current = false;
+    setLoading(true);
+    setLoadError(false);
     (async () => {
       try {
         const res = await fetch(`/api/vault/images/${encodeURIComponent(propertyId)}`);
         if (!res.ok) throw new Error();
         const data: PropertyIndex = await res.json();
+        if (!Array.isArray(data.images)) throw new Error("Invalid gallery response");
         if (!active) return;
-        if (Array.isArray(data.images) && data.images.length > 0) {
-          setCards(data.images.map(cardFromEntry));
-        }
+        setCards(data.images.length ? data.images.map(cardFromEntry) : [newCard()]);
+        loaded.current = true;
       } catch {
         if (active) setLoadError(true);
       } finally {
@@ -98,17 +108,20 @@ export function PropertyImagesTab({ property }: { property: Property }) {
     return () => {
       active = false;
     };
-  }, [propertyId]);
+  }, [propertyId, loadAttempt]);
 
   function patchCard(id: string, patch: Partial<Card>) {
+    if (savePending.current) return;
     setCards((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   }
 
   function addCard() {
+    if (savePending.current) return;
     setCards((cs) => [...cs, newCard()]);
   }
 
   function removeCard(id: string) {
+    if (savePending.current) return;
     setCards((cs) => (cs.length <= 1 ? [newCard()] : cs.filter((c) => c.id !== id)));
   }
 
@@ -145,6 +158,8 @@ export function PropertyImagesTab({ property }: { property: Property }) {
   }
 
   async function saveAll() {
+    if (!loaded.current || loading || loadError || savePending.current) return;
+    savePending.current = true;
     setSaving(true);
     try {
       const entries: ImageEntry[] = [];
@@ -189,6 +204,7 @@ export function PropertyImagesTab({ property }: { property: Property }) {
     } catch (err) {
       toast.info(err instanceof Error ? err.message : "Save failed.");
     } finally {
+      savePending.current = false;
       setSaving(false);
     }
   }
@@ -204,6 +220,15 @@ export function PropertyImagesTab({ property }: { property: Property }) {
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="ui-card p-6 flex flex-col items-start gap-3" role="alert">
+        <p>Could not load the gallery. Load the existing photos before making changes.</p>
+        <button type="button" className="ui-btn" onClick={() => setLoadAttempt((n) => n + 1)}>Retry loading photos</button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {/* Toolbar */}
@@ -211,23 +236,13 @@ export function PropertyImagesTab({ property }: { property: Property }) {
         <p className="text-sm" style={{ color: "var(--text-muted)" }}>
           {imageCount} {imageCount === 1 ? "photo" : "photos"} in the public gallery
         </p>
-        <button type="button" className="ui-btn ui-btn-primary shrink-0" onClick={saveAll} disabled={saving}>
+        <button type="button" className="ui-btn ui-btn-primary shrink-0" onClick={saveAll} disabled={saving || !!cropCardId}>
           {saving ? "Saving…" : "Save all"}
         </button>
       </div>
 
-      {loadError && (
-        <div
-          className="rounded-lg border px-4 py-2.5 text-sm"
-          style={{ borderColor: "rgba(211,84,84,.35)", background: "rgba(211,84,84,.10)", color: "var(--danger)" }}
-        >
-          Could not reach the Image Vault — existing photos may be missing below.
-          Saving now could overwrite the gallery; reload the page first.
-        </div>
-      )}
-
       {/* Cards */}
-      <div className="space-y-4">
+      <fieldset className="space-y-4" disabled={saving}>
         {cards.map((card, i) => (
           <ImageCard
             key={card.id}
@@ -239,12 +254,13 @@ export function PropertyImagesTab({ property }: { property: Property }) {
             onCrop={() => setCropCardId(card.id)}
           />
         ))}
-      </div>
+      </fieldset>
 
       {/* Add image */}
       <button
         type="button"
         onClick={addCard}
+        disabled={saving}
         className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-4 text-sm font-medium transition hover:bg-[var(--surface-muted)]"
         style={{ borderColor: "var(--border-strong)", color: "var(--accent)" }}
       >

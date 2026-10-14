@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
 import { useToast } from "@/components/Toast";
@@ -15,7 +16,7 @@ import {
   type RevenueEntry,
 } from "@/lib/data";
 
-const CUR_YEAR = 2026;
+const CUR_YEAR = new Date().getFullYear();
 
 const STATUS_COLOR: Record<PaymentStatus, string> = {
   paid: "var(--success)",
@@ -31,8 +32,12 @@ function entryTotal(e: RevenueEntry) {
 export default function RevenuePage() {
   const { properties, units, revenueEntries, getUnit, getUnitsForProperty } = useData();
   const toast = useToast();
+  const router = useRouter();
   const [entries, setEntries] = useState(revenueEntries);
+  useEffect(() => setEntries(revenueEntries), [revenueEntries]);
   const [entryOpen, setEntryOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<RevenueEntry>();
+  const entryProperty = editingEntry ? properties.find((property) => property.id === editingEntry.propertyId) : properties[0];
   const [fromDate, setFromDate] = useState(`${CUR_YEAR}-01-01`);
   const [toDate, setToDate] = useState(`${CUR_YEAR}-12-31`);
   const [search, setSearch] = useState("");
@@ -67,21 +72,23 @@ export default function RevenuePage() {
     <div className="flex flex-col gap-6">
       {/* Action bar */}
       <div className="flex justify-end">
-        <button type="button" className="ui-btn ui-btn-primary" onClick={() => setEntryOpen(true)}>
+        <button type="button" className="ui-btn ui-btn-primary" disabled={!properties.length} onClick={() => { setEditingEntry(undefined); setEntryOpen(true); }}>
           + Enter Revenue
         </button>
       </div>
+      {!properties.length && <p className="text-sm" style={{ color: "var(--text-muted)" }}>Add a property before recording revenue.</p>}
 
       {/* Quick Entry popup — pick a property in the header, then record revenue */}
-      {entryOpen && (
+      {entryOpen && entryProperty && (
         <QuickEntryModal
           open
           onClose={() => setEntryOpen(false)}
-          property={properties[0]}
-          units={getUnitsForProperty(properties[0].id)}
+          property={entryProperty}
+          units={getUnitsForProperty(entryProperty.id)}
           selectableProperties={properties}
           allUnits={units}
           initialTab="revenue"
+          initialRevenueEntry={editingEntry}
         />
       )}
 
@@ -236,7 +243,7 @@ export default function RevenuePage() {
                         <ActionMenu
                           label="Revenue actions"
                           items={[
-                            { label: "Edit", onClick: () => {} },
+                            { label: "Edit", onClick: () => { setEditingEntry(entry); setEntryOpen(true); } },
                             {
                               label: "Delete",
                               danger: true,
@@ -245,6 +252,7 @@ export default function RevenuePage() {
                                 if (res.ok) {
                                   setEntries((prev) => prev.filter((x) => x.id !== entry.id));
                                   toast.deleted("Revenue entry deleted");
+                                  router.refresh();
                                 } else {
                                   toast.info(res.error);
                                 }

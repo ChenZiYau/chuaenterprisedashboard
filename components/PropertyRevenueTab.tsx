@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
 import { useToast } from "@/components/Toast";
@@ -16,7 +17,7 @@ import {
   type RevenueEntry,
 } from "@/lib/data";
 
-const CUR_YEAR = 2026;
+const CUR_YEAR = new Date().getFullYear();
 
 const STATUS_COLOR: Record<PaymentStatus, string> = {
   paid: "var(--success)",
@@ -32,18 +33,22 @@ function entryTotal(e: RevenueEntry) {
 export function PropertyRevenueTab({ property }: { property: Property }) {
   const { revenueEntries, getUnit, getUnitsForProperty } = useData();
   const toast = useToast();
+  const router = useRouter();
   const [entries, setEntries] = useState(revenueEntries);
+  useEffect(() => setEntries(revenueEntries), [revenueEntries]);
 
   async function deleteEntry(id: string) {
     const res = await deleteResource(`/api/revenue/${encodeURIComponent(id)}`);
     if (res.ok) {
       setEntries((prev) => prev.filter((x) => x.id !== id));
       toast.deleted("Revenue entry deleted");
+      router.refresh();
     } else {
       toast.info(res.error);
     }
   }
   const [entryOpen, setEntryOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<RevenueEntry>();
   const [fromDate, setFromDate] = useState(`${CUR_YEAR}-01-01`);
   const [toDate, setToDate] = useState(`${CUR_YEAR}-12-31`);
   const [search, setSearch] = useState("");
@@ -85,6 +90,7 @@ export function PropertyRevenueTab({ property }: { property: Property }) {
           property={property}
           units={rooms}
           initialTab="revenue"
+          initialRevenueEntry={editingEntry}
         />
       )}
 
@@ -116,7 +122,7 @@ export function PropertyRevenueTab({ property }: { property: Property }) {
 
         <div className="flex flex-wrap items-center gap-3">
           <input type="search" className="ui-input w-auto min-w-[200px] flex-1 max-w-[360px]" placeholder="Search unit, tenant..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <button type="button" className="ui-btn ui-btn-primary" onClick={() => setEntryOpen(true)}>+ Enter Revenue</button>
+          <button type="button" className="ui-btn ui-btn-primary" onClick={() => { setEditingEntry(undefined); setEntryOpen(true); }}>+ Enter Revenue</button>
           <div className="ml-auto text-sm font-semibold" style={{ color: "var(--success)" }}>Total: {fmtMYR(totalRevenue)}</div>
         </div>
       </div>
@@ -164,7 +170,7 @@ export function PropertyRevenueTab({ property }: { property: Property }) {
                         <ActionMenu
                           label="Revenue actions"
                           items={[
-                            { label: "Edit", onClick: () => setEntryOpen(true) },
+                            { label: "Edit", onClick: () => { setEditingEntry(entry); setEntryOpen(true); } },
                             { label: "Delete", danger: true, onClick: () => deleteEntry(entry.id) },
                           ]}
                         />

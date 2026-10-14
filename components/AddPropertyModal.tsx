@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ImageCropperModal } from "@/components/ImageCropperModal";
-import { useData } from "@/lib/DataContext";
 import { slugError, slugify } from "@/lib/slug";
 import {
   PROPERTY_STATUS_LABEL,
@@ -64,7 +63,6 @@ export function AddPropertyModal({
   /** When set, the form edits this property instead of creating a new one. */
   initial?: { property: Property; units: Unit[] };
 }) {
-  const { tenants } = useData();
   const [rentalModel, setRentalModel] = useState<RentalModel>("room_rental");
   const [rooms, setRooms] = useState<RoomDraft[]>([blankRoom()]);
   const [occupied, setOccupied] = useState(false);
@@ -154,7 +152,10 @@ export function AddPropertyModal({
     setCropSrc(null);
     setErrors({});
     setSaving(false);
-  }, [open, initial]);
+    // Parent refreshes and error toasts can replace `initial` while editing.
+    // Keep the draft until this form reopens or switches to another property.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initial?.property.id]);
 
   // Clear a single field's error (leave the rest so each message persists
   // until its own field is fixed).
@@ -187,10 +188,6 @@ export function AddPropertyModal({
 
   const isRoom = rentalModel === "room_rental";
   const isEdit = !!initial;
-
-  // Tenant options come from the tenant table — a room is either vacant or
-  // assigned to an existing tenant.
-  const tenantNames = Array.from(new Set(tenants.map((t) => t.name))).sort((a, b) => a.localeCompare(b));
 
   function updateRoom(key: string, patch: Partial<RoomDraft>) {
     setRooms((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -240,6 +237,8 @@ export function AddPropertyModal({
       imageUrl: cover || undefined,
     };
 
+    const existingUnits = new Map(initial?.units.map((unit) => [unit.id, unit]));
+    const wholeUnit = wholeUnitId ? existingUnits.get(wholeUnitId) : undefined;
     const newUnits: Unit[] = isRoom
       ? rooms.map((r, i) => ({
           id: r.id ?? `${pid}-u${i + 1}`,
@@ -247,9 +246,9 @@ export function AddPropertyModal({
           name: r.name.trim(),
           tenantName: r.tenantName || undefined,
           rentalRate: parseFloat(r.rentalRate) || 0,
-          depositMonths: null,
-          depositAmount: null,
-          electricityFreeUnits: 30,
+          depositMonths: existingUnits.get(r.id ?? "")?.depositMonths ?? null,
+          depositAmount: existingUnits.get(r.id ?? "")?.depositAmount ?? null,
+          electricityFreeUnits: existingUnits.get(r.id ?? "")?.electricityFreeUnits ?? 30,
         }))
       : [
           {
@@ -258,9 +257,9 @@ export function AddPropertyModal({
             name: "Whole Unit",
             tenantName: occupied ? wholeTenant || undefined : undefined,
             rentalRate: parseFloat(wholeRent) || 0,
-            depositMonths: null,
-            depositAmount: null,
-            electricityFreeUnits: 0,
+            depositMonths: wholeUnit?.depositMonths ?? null,
+            depositAmount: wholeUnit?.depositAmount ?? null,
+            electricityFreeUnits: wholeUnit?.electricityFreeUnits ?? 0,
           },
         ];
 
@@ -470,17 +469,9 @@ export function AddPropertyModal({
                         </div>
 
                         <div>
-                          <label className={labelCls} style={labelStyle}>Tenant (select Vacant if none)</label>
-                          <select
-                            className="ui-select w-full"
-                            style={{ background: "var(--surface)" }}
-                            aria-label={`Tenant for room ${i + 1}`}
-                            value={room.tenantName}
-                            onChange={(e) => updateRoom(room.key, { tenantName: e.target.value })}
-                          >
-                            <option value="">Vacant</option>
-                            {tenantNames.map((n) => <option key={n} value={n}>{n}</option>)}
-                          </select>
+                          <label className={labelCls} style={labelStyle}>Current tenant</label>
+                          <input className="ui-field w-full" readOnly aria-label={`Tenant for room ${i + 1}`} value={room.tenantName || "Vacant"} />
+                          <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Assign or move tenants on the Tenants page after saving the property.</p>
                         </div>
                       </div>
                     ))}
@@ -504,10 +495,8 @@ export function AddPropertyModal({
                     </div>
                     <div>
                       <label className={labelCls} style={labelStyle}>Occupancy</label>
-                      <select className="ui-select w-full" value={occupied ? "occupied" : "vacant"} onChange={(e) => setOccupied(e.target.value === "occupied")}>
-                        <option value="vacant">Vacant</option>
-                        <option value="occupied">Occupied</option>
-                      </select>
+                      <input className="ui-field w-full" readOnly value={occupied ? "Occupied" : "Vacant"} aria-label="Current occupancy" />
+                      <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Assign or move tenants on the Tenants page after saving the property.</p>
                     </div>
                     <div>
                       <label className={labelCls} style={labelStyle}>Base rent (RM/mo)</label>
@@ -520,10 +509,7 @@ export function AddPropertyModal({
                     {occupied && (
                       <div>
                         <label className={labelCls} style={labelStyle}>Tenant</label>
-                        <select className="ui-select w-full" value={wholeTenant} onChange={(e) => setWholeTenant(e.target.value)}>
-                          <option value="">Select tenant...</option>
-                          {tenantNames.map((n) => <option key={n} value={n}>{n}</option>)}
-                        </select>
+                        <input className="ui-field w-full" readOnly value={wholeTenant} aria-label="Current tenant" />
                       </div>
                     )}
                   </div>

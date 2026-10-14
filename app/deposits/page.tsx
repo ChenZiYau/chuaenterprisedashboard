@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { saveResource } from "@/lib/clientApi";
 import { fmtMYR, type Property, type Unit } from "@/lib/data";
 
 /** The deposit held for a room: an explicit amount when set, otherwise the
  *  computed rental rate × deposit months. */
 function effectiveDeposit(unit: Unit): number {
-  if (unit.depositAmount != null && unit.depositAmount > 0) return unit.depositAmount;
+  if (unit.depositAmount != null) return unit.depositAmount;
   return unit.rentalRate * (unit.depositMonths ?? 0);
 }
 
@@ -151,26 +154,60 @@ const fieldStyle: React.CSSProperties = {
 };
 
 function DepositRoomCard({ unit }: { unit: Unit }) {
+  const { updateUnit } = useData();
+  const router = useRouter();
+  const toast = useToast();
   const rate = unit.rentalRate;
   const depositLabel = unit.tenantName ?? "Deposit";
 
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [monthsStr, setMonthsStr] = useState(unit.depositMonths != null ? String(unit.depositMonths) : "");
   const [amountStr, setAmountStr] = useState(
-    unit.depositAmount != null && unit.depositAmount > 0 ? String(unit.depositAmount) : ""
+    unit.depositAmount != null ? String(unit.depositAmount) : ""
   );
+  useEffect(() => {
+    if (editing) return;
+    setMonthsStr(unit.depositMonths != null ? String(unit.depositMonths) : "");
+    setAmountStr(unit.depositAmount != null ? String(unit.depositAmount) : "");
+  }, [unit.depositMonths, unit.depositAmount, editing]);
 
   const months = parseFloat(monthsStr);
   const computed = Number.isFinite(months) ? rate * months : 0;
-  const amountNum = parseFloat(amountStr);
-  const effective = Number.isFinite(amountNum) && amountNum > 0 ? amountNum : computed;
 
   // Changing months auto-fills the amount with rent × months; the amount can
   // still be overridden afterwards.
   function handleMonthsChange(v: string) {
     setMonthsStr(v);
     const m = parseFloat(v);
-    if (Number.isFinite(m) && rate * m > 0) setAmountStr(String(rate * m));
+    setAmountStr(Number.isFinite(m) && m >= 0 ? String(rate * m) : "");
+  }
+
+  async function saveDeposit() {
+    if (saving) return;
+    const depositMonths = monthsStr.trim() ? Number(monthsStr) : null;
+    const depositAmount = amountStr.trim() ? Number(amountStr) : null;
+    if ([depositMonths, depositAmount].some((value) => value != null && (!Number.isFinite(value) || value < 0))) {
+      setError("Enter a valid, non-negative deposit amount and number of months.");
+      return;
+    }
+    setError("");
+    setSaving(true);
+    const res = await saveResource<{ unit: Unit }>(
+      `/api/units/${encodeURIComponent(unit.id)}`,
+      "PUT",
+      { depositMonths, depositAmount },
+    );
+    setSaving(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    updateUnit(res.data.unit);
+    setEditing(false);
+    router.refresh();
+    toast.updated(`Deposit for ${unit.name} updated`);
   }
 
   return (
@@ -187,15 +224,22 @@ function DepositRoomCard({ unit }: { unit: Unit }) {
           <div className="absolute right-0 flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setEditing(false)}
+              onClick={saveDeposit}
+              disabled={saving}
               className="text-[11px] font-medium px-2 py-1 rounded-md transition"
               style={{ background: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
-              Save
+              {saving ? "Saving..." : "Save"}
             </button>
             <button
               type="button"
-              onClick={() => setEditing(false)}
+              onClick={() => {
+                setMonthsStr(unit.depositMonths != null ? String(unit.depositMonths) : "");
+                setAmountStr(unit.depositAmount != null ? String(unit.depositAmount) : "");
+                setError("");
+                setEditing(false);
+              }}
+              disabled={saving}
               className="text-[11px] font-medium px-2 py-1 rounded-md border transition"
               style={{ borderColor: "var(--border-soft)", background: "var(--surface)", color: "var(--text-muted)" }}
             >
@@ -205,7 +249,7 @@ function DepositRoomCard({ unit }: { unit: Unit }) {
         ) : (
           <button
             type="button"
-            onClick={() => setEditing(true)}
+            onClick={() => { setError(""); setEditing(true); }}
             aria-label={`Edit deposit for ${unit.name}`}
             className="absolute right-0 text-[11px] font-medium px-2 py-1 rounded-md border transition hover:bg-[var(--surface)]"
             style={{ borderColor: "var(--border-soft)", background: "var(--surface)", color: "var(--text-primary)" }}
@@ -214,6 +258,8 @@ function DepositRoomCard({ unit }: { unit: Unit }) {
           </button>
         )}
       </div>
+
+      {error && <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{error}</p>}
 
       <DepositRow label="Rental per Month">
         <span className="font-medium tabular-nums" style={{ color: "var(--text-secondary)" }}>
@@ -232,11 +278,12 @@ function DepositRoomCard({ unit }: { unit: Unit }) {
             style={fieldStyle}
             placeholder="0"
             value={monthsStr}
+            disabled={saving}
             onChange={(e) => handleMonthsChange(e.target.value)}
           />
         ) : (
           <span className="font-medium tabular-nums" style={{ color: "var(--text-secondary)" }}>
-            {monthsStr ? monthsStr : "—"}
+            {unit.depositMonths ?? "—"}
           </span>
         )}
       </DepositRow>
@@ -252,11 +299,12 @@ function DepositRoomCard({ unit }: { unit: Unit }) {
             style={fieldStyle}
             placeholder={computed > 0 ? String(computed) : "0.00"}
             value={amountStr}
+            disabled={saving}
             onChange={(e) => setAmountStr(e.target.value)}
           />
         ) : (
           <span className="text-base font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
-            {fmtMYR(effective)}
+            {fmtMYR(effectiveDeposit(unit))}
           </span>
         )}
       </DepositRow>

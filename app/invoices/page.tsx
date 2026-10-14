@@ -1,23 +1,31 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { QuickEntryModal } from "@/components/QuickEntryModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ActionMenu, Pagination, usePagination } from "@/components/ui";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
-import { deleteResource } from "@/lib/clientApi";
+import { deleteResource, saveResource } from "@/lib/clientApi";
 import { MONTHS, fmtMYR, type RevenueEntry } from "@/lib/data";
 import { buildReceiptData, openReceiptWindow } from "@/lib/receipt";
 
-const CUR_YEAR = 2026;
+const CUR_YEAR = new Date().getFullYear();
 
 function entryTotal(e: RevenueEntry) {
   return e.rental + (e.electricity ?? 0) + (e.other ?? 0);
 }
 
 export default function InvoicesPage() {
-  const { properties, revenueEntries, getUnit } = useData();
+  const { properties, revenueEntries, getUnit, getUnitsForProperty } = useData();
   const toast = useToast();
+  const router = useRouter();
   const [entries, setEntries] = useState(revenueEntries);
+  useEffect(() => setEntries(revenueEntries), [revenueEntries]);
+  const [editTarget, setEditTarget] = useState<RevenueEntry | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RevenueEntry | null>(null);
+  const generating = useRef(new Set<string>());
   const [fromMonth, setFromMonth] = useState(`${CUR_YEAR}-01`);
   const [toMonth, setToMonth] = useState(`${CUR_YEAR}-12`);
   const [search, setSearch] = useState("");
@@ -63,14 +71,41 @@ export default function InvoicesPage() {
     return buildReceiptData(entry, prop, unit, unit?.tenantName, entry.invoiceNumber);
   }
 
-  function generateInvoice(entry: RevenueEntry) {
-    setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, invoiceGenerated: true } : e)));
-    openReceiptWindow(receiptFor(entry), true);
-    toast.updated(`Invoice ${entry.invoiceNumber} generated`);
+  async function generateInvoice(entry: RevenueEntry) {
+    if (generating.current.has(entry.id)) return;
+    const receiptWindow = window.open("", "_blank", "width=840,height=1000");
+    if (!receiptWindow) {
+      toast.info("Allow pop-ups to open the receipt, then try again.");
+      return;
+    }
+    generating.current.add(entry.id);
+    try {
+      const res = await saveResource<{ entry: RevenueEntry }>(`/api/revenue/${encodeURIComponent(entry.id)}`, "PATCH", { invoiceGenerated: true });
+      if (!res.ok) {
+        receiptWindow.close();
+        toast.info(res.error);
+        return;
+      }
+      setEntries((prev) => prev.map((e) => e.id === entry.id ? res.data.entry : e));
+      openReceiptWindow(receiptFor(res.data.entry), true, receiptWindow);
+      router.refresh();
+      toast.updated(`Invoice ${res.data.entry.invoiceNumber} generated`);
+    } finally {
+      generating.current.delete(entry.id);
+    }
   }
 
   function previewInvoice(entry: RevenueEntry) {
-    openReceiptWindow(receiptFor(entry), false);
+    if (!openReceiptWindow(receiptFor(entry), false)) toast.info("Allow pop-ups to preview the receipt.");
+  }
+
+  async function deleteInvoice(entry: RevenueEntry) {
+    const res = await deleteResource(`/api/revenue/${encodeURIComponent(entry.id)}`);
+    if (!res.ok) { toast.info(res.error); return; }
+    setEntries((prev) => prev.filter((x) => x.id !== entry.id));
+    setDeleteTarget(null);
+    router.refresh();
+    toast.deleted(`Invoice ${entry.invoiceNumber} and revenue entry deleted`);
   }
 
   return (
@@ -211,20 +246,11 @@ export default function InvoicesPage() {
                           label="Invoice actions"
                           items={[
                             { label: "Preview", onClick: () => previewInvoice(entry) },
-                            { label: "Edit", onClick: () => {} },
+                            { label: "Edit", onClick: () => setEditTarget(entry) },
                             {
                               label: "Delete",
                               danger: true,
-                              onClick: async () => {
-                                // Invoices are revenue rows — deleting one removes the entry.
-                                const res = await deleteResource(`/api/revenue/${encodeURIComponent(entry.id)}`);
-                                if (res.ok) {
-                                  setEntries((prev) => prev.filter((x) => x.id !== entry.id));
-                                  toast.deleted(`Invoice ${entry.invoiceNumber} deleted`);
-                                } else {
-                                  toast.info(res.error);
-                                }
-                              },
+                              onClick: () => setDeleteTarget(entry),
                             },
                           ]}
                         />
@@ -258,6 +284,16 @@ export default function InvoicesPage() {
           onPage={setPage}
           unit="invoice"
         />
+      )}
+      {editTarget && properties.find((p) => p.id === editTarget.propertyId) && (
+        <QuickEntryModal open onClose={() => setEditTarget(null)}
+          property={properties.find((p) => p.id === editTarget.propertyId)!}
+          units={getUnitsForProperty(editTarget.propertyId)} initialRevenueEntry={editTarget} />
+      )}
+      {deleteTarget && (
+        <ConfirmDialog open title="Delete invoice and revenue entry"
+          message="This permanently deletes the underlying revenue entry and changes financial totals. This cannot be undone."
+          confirmLabel="Delete revenue entry" onConfirm={() => deleteInvoice(deleteTarget)} onClose={() => setDeleteTarget(null)} />
       )}
     </div>
   );

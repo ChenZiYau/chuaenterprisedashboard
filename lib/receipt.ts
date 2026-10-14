@@ -76,7 +76,9 @@ export function buildReceiptData(
     .join(", ")
     .toUpperCase();
   const lastDay = new Date(entry.year, entry.month, 0).getDate();
-  const method = entry.method ? PAYMENT_METHOD_LABEL[entry.method] : "Cash / Bank Transfer";
+  const method = entry.method === "other" && entry.customPaymentMethod
+    ? entry.customPaymentMethod
+    : entry.method ? PAYMENT_METHOD_LABEL[entry.method] : "Cash / Bank Transfer";
   return {
     number,
     date: fmtDots(entry.paymentDate) || fmtDots(todayIso()),
@@ -177,10 +179,11 @@ export function renderReceiptHtml(d: ReceiptData, autoPrint: boolean) {
 </html>`;
 }
 
-export function openReceiptWindow(data: ReceiptData, autoPrint: boolean) {
-  const w = window.open("", "_blank", "width=840,height=1000");
-  if (!w) return;
+export function openReceiptWindow(data: ReceiptData, autoPrint: boolean, target?: Window | null) {
+  const w = target === undefined ? window.open("", "_blank", "width=840,height=1000") : target;
+  if (!w || w.closed) return null;
   w.document.open();
   w.document.write(renderReceiptHtml(data, autoPrint));
   w.document.close();
+  return w;
 }

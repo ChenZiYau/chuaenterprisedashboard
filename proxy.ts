@@ -17,6 +17,9 @@ export async function proxy(req: NextRequest) {
   if (isPublicApi) return NextResponse.next();
 
   if (!authed && !isLogin) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Your session has expired. Please sign in again." }, { status: 401 });
+    }
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
@@ -36,5 +39,5 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   // Run on everything except Next internals and static files.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  matcher: ["/api/:path*", "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
 };

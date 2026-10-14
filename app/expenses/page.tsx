@@ -1,20 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { useToast } from "@/components/Toast";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
 import { useData } from "@/lib/DataContext";
 import { deleteResource } from "@/lib/clientApi";
-import { EXPENSE_CATEGORY_LABEL, MONTHS, fmtMYR } from "@/lib/data";
+import { EXPENSE_CATEGORY_LABEL, MONTHS, fmtMYR, type ExpenseEntry } from "@/lib/data";
 
-const CUR_YEAR = 2026;
+const CUR_YEAR = new Date().getFullYear();
 
 export default function ExpensesPage() {
   const { properties, units, expenseEntries, getUnit, getUnitsForProperty } = useData();
   const toast = useToast();
+  const router = useRouter();
   const [entries, setEntries] = useState(expenseEntries);
+  useEffect(() => setEntries(expenseEntries), [expenseEntries]);
   const [entryOpen, setEntryOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<ExpenseEntry>();
+  const entryProperty = editingEntry ? properties.find((property) => property.id === editingEntry.propertyId) : properties[0];
   const [fromDate, setFromDate] = useState(`${CUR_YEAR}-01-01`);
   const [toDate, setToDate] = useState(`${CUR_YEAR}-12-31`);
   const [search, setSearch] = useState("");
@@ -48,21 +53,23 @@ export default function ExpensesPage() {
     <div className="flex flex-col gap-6">
       {/* Action bar */}
       <div className="flex justify-end">
-        <button type="button" className="ui-btn ui-btn-primary" onClick={() => setEntryOpen(true)}>
+        <button type="button" className="ui-btn ui-btn-primary" disabled={!properties.length} onClick={() => { setEditingEntry(undefined); setEntryOpen(true); }}>
           + Add Expense
         </button>
       </div>
+      {!properties.length && <p className="text-sm" style={{ color: "var(--text-muted)" }}>Add a property before recording expenses.</p>}
 
       {/* Quick Entry popup — pick a property in the header, then record expenses */}
-      {entryOpen && (
+      {entryOpen && entryProperty && (
         <QuickEntryModal
           open
           onClose={() => setEntryOpen(false)}
-          property={properties[0]}
-          units={getUnitsForProperty(properties[0].id)}
+          property={entryProperty}
+          units={getUnitsForProperty(entryProperty.id)}
           selectableProperties={properties}
           allUnits={units}
           initialTab="expense"
+          initialExpenseEntry={editingEntry}
         />
       )}
 
@@ -209,7 +216,7 @@ export default function ExpensesPage() {
                         <ActionMenu
                           label="Expense actions"
                           items={[
-                            { label: "Edit", onClick: () => {} },
+                            { label: "Edit", onClick: () => { setEditingEntry(entry); setEntryOpen(true); } },
                             {
                               label: "Delete",
                               danger: true,
@@ -218,6 +225,7 @@ export default function ExpensesPage() {
                                 if (res.ok) {
                                   setEntries((prev) => prev.filter((x) => x.id !== entry.id));
                                   toast.deleted("Expense deleted");
+                                  router.refresh();
                                 } else {
                                   toast.info(res.error);
                                 }

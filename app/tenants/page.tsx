@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ActionMenu, DatePicker, Pagination, usePagination } from "@/components/ui";
 import { AddTenantModal } from "@/components/AddTenantModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
-import { deleteResource } from "@/lib/clientApi";
+import { deleteResource, saveResource } from "@/lib/clientApi";
 import {
   PAYMENT_STATUS_LABEL,
   fmtMYR,
@@ -182,6 +183,7 @@ function TenantCard({
         </div>
         <DatePicker
           value={tenant.leaseEnd}
+          min={tenant.leaseStart || undefined}
           onChange={onLeaseEndChange}
           ariaLabel={`Change lease end date for ${tenant.name}`}
           triggerClassName="text-left rounded-md border px-2 py-1.5 -mx-1 transition hover:bg-[var(--surface-muted)] hover:border-[var(--accent,#2f6fed)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent,#2f6fed)] group"
@@ -205,7 +207,10 @@ function TenantCard({
 export default function TenantsPage() {
   const { properties, units, revenueEntries, tenants: liveTenants } = useData();
   const toast = useToast();
+  const router = useRouter();
   const [tenants, setTenants] = useState(liveTenants);
+  useEffect(() => setTenants(liveTenants), [liveTenants]);
+  const pendingLeaseChanges = useRef(new Set<string>());
   const [search, setSearch] = useState("");
   const [filterProp, setFilterProp] = useState("all");
   const [filterPay, setFilterPay] = useState("all");
@@ -219,6 +224,8 @@ export default function TenantsPage() {
       setTenants((prev) => prev.filter((x) => x.id !== tenant.id));
       setDeleteTarget(null);
       toast.deleted(`Tenant ${tenant.name} deleted`);
+      if (res.warning) toast.info(res.warning);
+      router.refresh();
     } else {
       toast.info(res.error);
     }
@@ -320,11 +327,30 @@ export default function TenantsPage() {
               lease={lease}
               onEdit={() => setEditTarget(tenant)}
               onDelete={() => setDeleteTarget(tenant)}
-              onLeaseEndChange={(date) =>
-                setTenants((prev) =>
-                  prev.map((x) => (x.id === tenant.id ? { ...x, leaseEnd: date } : x))
-                )
-              }
+              onLeaseEndChange={async (date) => {
+                if (pendingLeaseChanges.current.has(tenant.id) || date === tenant.leaseEnd) return;
+                if (!date || date < tenant.leaseStart) {
+                  toast.info("Lease end cannot be before the start.");
+                  return;
+                }
+                pendingLeaseChanges.current.add(tenant.id);
+                try {
+                  const res = await saveResource<{ tenant: Tenant; warning?: string }>(
+                    `/api/tenants/${encodeURIComponent(tenant.id)}`,
+                    "PUT",
+                    { ...tenant, leaseEnd: date },
+                  );
+                  if (!res.ok) {
+                    toast.info(res.error);
+                    return;
+                  }
+                  setTenants((prev) => prev.map((x) => x.id === tenant.id ? res.data.tenant : x));
+                  if (res.data.warning) toast.info(res.data.warning);
+                  router.refresh();
+                } finally {
+                  pendingLeaseChanges.current.delete(tenant.id);
+                }
+              }}
             />
           ))}
         </div>
@@ -352,14 +378,29 @@ export default function TenantsPage() {
         properties={properties}
         units={units}
         tenants={tenants}
-        onAdd={(t) => {
-          if (tenants.some((x) => x.id === t.id)) {
-            setTenants((prev) => prev.map((x) => (x.id === t.id ? t : x)));
-            toast.info(`Tenant ${t.name} updated`);
-          } else {
-            setTenants((prev) => [t, ...prev]);
-            toast.created(`Tenant ${t.name} created`);
+        onAdd={async (t) => {
+          const isEdit = tenants.some((x) => x.id === t.id);
+          const res = isEdit
+            ? await saveResource<{ tenant: Tenant; warning?: string }>(
+                `/api/tenants/${encodeURIComponent(t.id)}`,
+                "PUT",
+                t,
+              )
+            : await saveResource<{ tenant: Tenant; warning?: string }>("/api/tenants", "POST", t);
+          if (!res.ok) {
+            toast.info(res.error);
+            return false;
           }
+          const saved = res.data.tenant;
+          if (isEdit) {
+            setTenants((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
+            toast.updated(`Tenant ${saved.name} updated`);
+          } else {
+            setTenants((prev) => [saved, ...prev]);
+            toast.created(`Tenant ${saved.name} created`);
+          }
+          if (res.data.warning) toast.info(res.data.warning);
+          router.refresh();
         }}
       />
 
@@ -368,7 +409,7 @@ export default function TenantsPage() {
         <ConfirmDialog
           open
           title="Delete Tenant"
-          message={`Delete ${deleteTarget.name}? This permanently removes the tenant record and marks their unit as vacant, and cannot be undone.`}
+          message={`Delete ${deleteTarget.name}? This permanently removes the tenant record and marks their unit as vacant if no other tenants remain, and cannot be undone.`}
           confirmLabel="Delete"
           onConfirm={() => deleteTenant(deleteTarget)}
           onClose={() => setDeleteTarget(null)}

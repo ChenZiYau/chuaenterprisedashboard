@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { deleteResource } from "@/lib/clientApi";
 import { PropertyCover } from "@/components/PropertyCover";
 import { ActionMenu } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
@@ -138,12 +140,14 @@ export default function SharePage() {
   const toast = useToast();
 
   const [search, setSearch] = useState("");
+  const router = useRouter();
   const [summaries, setSummaries] = useState<Record<string, VaultSummary>>({});
   const [loadError, setLoadError] = useState(false);
 
   // Seeded from live Supabase data; local state lets slug edits and deletions
   // reflect instantly without a reload.
   const [properties, setProperties] = useState<Property[]>(liveProperties);
+  useEffect(() => setProperties(liveProperties), [liveProperties]);
   const [modal, setModal] = useState<CardModal | null>(null);
 
   useEffect(() => {
@@ -177,26 +181,24 @@ export default function SharePage() {
   /** Confirmed delete: hide the card immediately; the real DELETE only fires
    *  when the undo toast closes without "Undo". */
   function deleteProperty(property: Property) {
-    const snapshot = properties;
     setModal(null);
     setProperties((prev) => prev.filter((p) => p.id !== property.id));
     hideProperty(property.id);
 
     const restore = () => {
-      setProperties(snapshot);
+      setProperties((prev) => prev.some((p) => p.id === property.id) ? prev : [...prev, property]);
       unhideProperty(property.id);
     };
 
     toast.undoable(`${property.name} moved to Trash. In case it was accidental, you can undo.`, {
       onUndo: restore,
       onCommit: async () => {
-        const res = await fetch(`/api/properties/${encodeURIComponent(property.id)}`, {
-          method: "DELETE",
-        });
+        const res = await deleteResource(`/api/properties/${encodeURIComponent(property.id)}`);
         if (!res.ok) {
           restore();
-          const data = await res.json().catch(() => ({}));
-          toast.info((data as { error?: string }).error ?? "Could not delete the property.");
+          toast.info(res.error);
+        } else {
+          router.refresh();
         }
       },
     });

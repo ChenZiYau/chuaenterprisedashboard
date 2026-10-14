@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   const payload = parsePropertyPayload(body);
   if (!payload) {
-    return NextResponse.json({ error: "Property name is required." }, { status: 400 });
+    return NextResponse.json({ error: "A property name and a valid, non-empty unit list are required." }, { status: 400 });
   }
 
   const resolved = resolveSlug(payload.property);
@@ -27,6 +27,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: resolved.error }, { status: 400 });
   }
   payload.property.slug = resolved.slug;
+  // New units start vacant; assigning a tenant also requires changing their
+  // unit_id and is handled by the tenant editor after the property is saved.
+  payload.units = payload.units.map((u) => ({ ...u, tenantName: undefined }));
 
   try {
     if (await slugTaken(resolved.slug)) {

@@ -58,7 +58,7 @@ export function mapUnit(r: Record<string, unknown>): Unit {
   };
 }
 
-function mapTenant(r: Record<string, unknown>): Tenant {
+export function mapTenant(r: Record<string, unknown>): Tenant {
   return {
     id: r.id as string,
     name: (r.name as string) ?? "",
@@ -71,7 +71,9 @@ function mapTenant(r: Record<string, unknown>): Tenant {
   };
 }
 
-function mapRevenue(r: Record<string, unknown>): RevenueEntry {
+export function mapRevenue(r: Record<string, unknown>): RevenueEntry {
+  const method = typeof r.payment_method === "string" ? r.payment_method : "bank_transfer";
+  const standardMethod = ["bank_transfer", "cash", "cheque", "other"].includes(method);
   return {
     id: r.id as string,
     propertyId: r.property_id as string,
@@ -83,7 +85,9 @@ function mapRevenue(r: Record<string, unknown>): RevenueEntry {
     electricityReading: num(r.electricity_units),
     electricity: num(r.electricity_amount),
     other: num(r.other_charges_amount),
-    method: ((r.payment_method as PaymentMethod) ?? "bank_transfer"),
+    method: standardMethod ? method as PaymentMethod : "other",
+    customPaymentMethod: standardMethod ? undefined : method,
+    notes: typeof r.notes === "string" ? r.notes : "",
     status: ((r.payment_status as PaymentStatus) ?? "pending"),
     invoiceGenerated: Boolean(r.invoice_generated),
     invoiceNumber: (r.invoice_number as string) ?? "",
@@ -110,44 +114,39 @@ export function mapExpense(r: Record<string, unknown>): ExpenseEntry {
 
 // --- Fetchers ---------------------------------------------------------------
 
+/** PostgREST caps each response. Page with a stable unique tie-breaker so
+ *  older entries are included in ledgers and dashboard totals. */
+async function getAllRows(table: string, orders: [string, boolean][]): Promise<Record<string, unknown>[]> {
+  const rows: Record<string, unknown>[] = [];
+  const pageSize = 500;
+  for (;;) {
+    let query = supabaseAdmin.from(table).select("*");
+    for (const [column, ascending] of orders) query = query.order(column, { ascending });
+    const { data, error } = await query.order("id", { ascending: true }).range(rows.length, rows.length + pageSize - 1);
+    if (error) throw error;
+    if (!data?.length) return rows;
+    rows.push(...data);
+  }
+}
+
 export async function getProperties(): Promise<Property[]> {
-  const { data, error } = await supabaseAdmin.from("properties").select("*").order("name");
-  if (error) throw error;
-  return (data ?? []).map(mapProperty);
+  return (await getAllRows("properties", [["name", true]])).map(mapProperty);
 }
 
 export async function getUnits(): Promise<Unit[]> {
-  const { data, error } = await supabaseAdmin
-    .from("units")
-    .select("*")
-    .order("sort_order", { ascending: true });
-  if (error) throw error;
-  return (data ?? []).map(mapUnit);
+  return (await getAllRows("units", [["sort_order", true]])).map(mapUnit);
 }
 
 export async function getTenants(): Promise<Tenant[]> {
-  const { data, error } = await supabaseAdmin.from("tenants").select("*").order("name");
-  if (error) throw error;
-  return (data ?? []).map(mapTenant);
+  return (await getAllRows("tenants", [["name", true]])).map(mapTenant);
 }
 
 export async function getRevenue(): Promise<RevenueEntry[]> {
-  const { data, error } = await supabaseAdmin
-    .from("revenue")
-    .select("*")
-    .order("year", { ascending: false })
-    .order("month", { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(mapRevenue);
+  return (await getAllRows("revenue", [["year", false], ["month", false]])).map(mapRevenue);
 }
 
 export async function getExpenses(): Promise<ExpenseEntry[]> {
-  const { data, error } = await supabaseAdmin
-    .from("expenses")
-    .select("*")
-    .order("expense_date", { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(mapExpense);
+  return (await getAllRows("expenses", [["expense_date", false]])).map(mapExpense);
 }
 
 export type DashboardData = {

@@ -11,8 +11,8 @@ export const dynamic = "force-dynamic";
 // Saves the Edit Property form: updates the property row, then reconciles the
 // unit list — payload units whose id matches an existing row are updated in
 // place (preserving tenant/revenue references), the rest are inserted, and
-// existing units missing from the payload are deleted (their tenant/revenue
-// FKs are ON DELETE SET NULL). Returns the persisted rows.
+// existing units missing from the payload are deleted only when they have no
+// linked tenant or financial records. Returns the persisted rows.
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -28,7 +28,7 @@ export async function PUT(
 
   const payload = parsePropertyPayload(body);
   if (!payload) {
-    return NextResponse.json({ error: "Property name is required." }, { status: 400 });
+    return NextResponse.json({ error: "A property name and a valid, non-empty unit list are required." }, { status: 400 });
   }
 
   const resolved = resolveSlug(payload.property);
@@ -45,10 +45,44 @@ export async function PUT(
       );
     }
 
+    const { data: current, error: curErr } = await supabaseAdmin
+      .from("units")
+      .select("id, tenant_name")
+      .eq("property_id", id);
+    if (curErr) throw curErr;
+    const existingIds = new Set((current ?? []).map((u) => u.id as string));
+    // Tenant assignment belongs to the tenant routes. Property edits must not
+    // overwrite occupancy with a stale form value or move only a display name.
+    const currentNames = new Map((current ?? []).map((u) => [u.id as string, u.tenant_name as string | null]));
+    const unitsForSave = payload.units.map((u) => ({ ...u, tenantName: currentNames.get(u.id) ?? undefined }));
+
+    const keptIds = new Set(
+      payload.units.map((u) => u.id).filter((uid) => existingIds.has(uid)),
+    );
+    const removedIds = [...existingIds].filter((uid) => !keptIds.has(uid));
+    // Check before any writes: removing a linked room would detach its
+    // tenants and historical income/expenses, including on model changes.
+    if (removedIds.length > 0) {
+      for (const table of ["tenants", "revenue", "expenses"] as const) {
+        const { data, error } = await supabaseAdmin
+          .from(table)
+          .select("id")
+          .in("unit_id", removedIds)
+          .limit(1);
+        if (error) throw error;
+        if (data?.length) {
+          return NextResponse.json(
+            { error: "Cannot remove a unit with linked tenants, revenue or expenses. Keep the unit to preserve its records." },
+            { status: 409 },
+          );
+        }
+      }
+    }
+
     const { data: pRows, error: pErr } = await supabaseAdmin
       .from("properties")
       .update({
-        ...propertyRow(payload.property, payload.units),
+        ...propertyRow(payload.property, unitsForSave),
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
@@ -58,17 +92,6 @@ export async function PUT(
       return NextResponse.json({ error: "Property not found." }, { status: 404 });
     }
 
-    const { data: current, error: curErr } = await supabaseAdmin
-      .from("units")
-      .select("id")
-      .eq("property_id", id);
-    if (curErr) throw curErr;
-    const existingIds = new Set((current ?? []).map((u) => u.id as string));
-
-    const keptIds = new Set(
-      payload.units.map((u) => u.id).filter((uid) => existingIds.has(uid)),
-    );
-    const removedIds = [...existingIds].filter((uid) => !keptIds.has(uid));
     if (removedIds.length > 0) {
       const { error } = await supabaseAdmin.from("units").delete().in("id", removedIds);
       if (error) throw error;
@@ -78,13 +101,14 @@ export async function PUT(
     for (let i = 0; i < payload.units.length; i++) {
       const u = payload.units[i];
       if (keptIds.has(u.id)) {
+        const { tenant_name: _tenantName, is_rented: _isRented, ...fields } = unitRow(u, id, i);
         const { error } = await supabaseAdmin
           .from("units")
-          .update(unitRow(u, id, i))
+          .update(fields)
           .eq("id", u.id);
         if (error) throw error;
       } else {
-        inserts.push(unitRow(u, id, i));
+        inserts.push(unitRow({ ...u, tenantName: undefined }, id, i));
       }
     }
     if (inserts.length > 0) {

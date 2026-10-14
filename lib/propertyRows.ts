@@ -15,7 +15,23 @@ export function parsePropertyPayload(body: unknown): PropertyPayload | null {
   const b = body as Partial<PropertyPayload> | null;
   const p = b?.property;
   if (!p || typeof p.name !== "string" || !p.name.trim()) return null;
-  return { property: p, units: Array.isArray(b?.units) ? b.units : [] };
+  // An omitted or malformed unit list must never be treated as a request to
+  // remove every existing unit during an edit.
+  if (!Array.isArray(b?.units) || b.units.length === 0) return null;
+  const ids = new Set<string>();
+  const nonNegative = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+  for (const unit of b.units) {
+    if (
+      !unit || typeof unit.id !== "string" || !unit.id || ids.has(unit.id) ||
+      typeof unit.name !== "string" || !unit.name.trim() ||
+      (unit.tenantName != null && typeof unit.tenantName !== "string") ||
+      !nonNegative(unit.rentalRate) || !nonNegative(unit.electricityFreeUnits) ||
+      (unit.depositMonths != null && !nonNegative(unit.depositMonths)) ||
+      (unit.depositAmount != null && !nonNegative(unit.depositAmount))
+    ) return null;
+    ids.add(unit.id);
+  }
+  return { property: p, units: b.units };
 }
 
 /** Canonical share-link slug for the payload: the submitted slug, falling

@@ -5,6 +5,8 @@ import { DashboardShell } from "@/components/DashboardShell";
 import { ToastProvider } from "@/components/Toast";
 import { DataProvider, type DashboardData } from "@/lib/DataContext";
 import { getDashboardData } from "@/lib/db";
+import { cookies } from "next/headers";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], display: "swap" });
@@ -26,13 +28,18 @@ const EMPTY: DashboardData = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Fetch once for the whole tree. If Supabase is unreachable (e.g. paused),
-  // fall back to empty data so the login screen still renders.
+  // The public login page shares this layout. Never serialize private records
+  // into its client provider, even though the dashboard chrome is hidden.
   let data: DashboardData = EMPTY;
-  try {
-    data = await getDashboardData();
-  } catch (err) {
-    console.error("[layout] Supabase fetch failed:", err);
+  let dataError = false;
+  const jar = await cookies();
+  if (await verifySessionToken(jar.get(SESSION_COOKIE)?.value)) {
+    try {
+      data = await getDashboardData();
+    } catch (err) {
+      console.error("[layout] Supabase fetch failed:", err);
+      dataError = true;
+    }
   }
 
   return (
@@ -44,7 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <ThemeProvider>
           <DataProvider value={data}>
             <ToastProvider>
-              <DashboardShell>{children}</DashboardShell>
+              <DashboardShell dataError={dataError}>{children}</DashboardShell>
             </ToastProvider>
           </DataProvider>
         </ThemeProvider>

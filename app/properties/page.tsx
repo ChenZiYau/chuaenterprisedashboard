@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActionMenu } from "@/components/ui";
 import { QuickEntryModal, type QuickEntryTab } from "@/components/QuickEntryModal";
 import { AddPropertyModal } from "@/components/AddPropertyModal";
@@ -160,8 +160,9 @@ function PropertyCard({
 }
 
 export default function PropertiesPage() {
-  const { properties: liveProperties, units: liveUnits } = useData();
+  const { properties: liveProperties, units: liveUnits, upsertProperty, hideProperty } = useData();
   const toast = useToast();
+  const router = useRouter();
 
   const [search, setSearch] = useState("");
   const [filterModel, setFilterModel] = useState("all");
@@ -170,6 +171,8 @@ export default function PropertiesPage() {
   // appear immediately; a refresh re-reads from the database.
   const [properties, setProperties] = useState<Property[]>(liveProperties);
   const [units, setUnits] = useState<Unit[]>(liveUnits);
+  useEffect(() => setProperties(liveProperties), [liveProperties]);
+  useEffect(() => setUnits(liveUnits), [liveUnits]);
 
   const [entry, setEntry] = useState<{ property: Property; tab: QuickEntryTab } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -184,6 +187,8 @@ export default function PropertiesPage() {
     if (res.ok) {
       setProperties((prev) => prev.filter((p) => p.id !== property.id));
       setUnits((prev) => prev.filter((u) => u.propertyId !== property.id));
+      hideProperty(property.id);
+      router.refresh();
       setDeleteTarget(null);
       toast.deleted(`Property ${property.name} deleted`);
     } else {
@@ -288,6 +293,8 @@ export default function PropertiesPage() {
           }
           setProperties((prev) => [res.data.property, ...prev]);
           setUnits((prev) => [...prev, ...res.data.units]);
+          upsertProperty(res.data.property, res.data.units);
+          router.refresh();
           setPreviewId(res.data.property.id);
           toast.created(`Property ${res.data.property.name} created`);
         }}
@@ -312,6 +319,8 @@ export default function PropertiesPage() {
             }
             setProperties((prev) => prev.map((p) => (p.id === property.id ? res.data.property : p)));
             setUnits((prev) => [...prev.filter((u) => u.propertyId !== property.id), ...res.data.units]);
+            upsertProperty(res.data.property, res.data.units);
+            router.refresh();
             setEditId(null);
             toast.updated(`Property ${res.data.property.name} updated`);
           }}

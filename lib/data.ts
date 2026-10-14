@@ -110,6 +110,8 @@ export type RevenueEntry = {
   electricity: number | null;
   other: number | null;
   method: PaymentMethod;
+  customPaymentMethod?: string;
+  notes?: string;
   status: PaymentStatus;
   invoiceGenerated: boolean;
   invoiceNumber: string;

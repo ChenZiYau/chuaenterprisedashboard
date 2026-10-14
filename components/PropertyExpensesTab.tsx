@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
 import { deleteResource } from "@/lib/clientApi";
-import { EXPENSE_CATEGORY_LABEL, MONTHS, fmtMYR, type Property } from "@/lib/data";
+import { EXPENSE_CATEGORY_LABEL, MONTHS, fmtMYR, type Property, type ExpenseEntry } from "@/lib/data";
 
-const CUR_YEAR = 2026;
+const CUR_YEAR = new Date().getFullYear();
 
 export function PropertyExpensesTab({ property }: { property: Property }) {
   const { expenseEntries, getUnit, getUnitsForProperty } = useData();
   const toast = useToast();
+  const router = useRouter();
   const [entries, setEntries] = useState(expenseEntries);
 
   // Re-seed whenever the server data refreshes (e.g. after Quick Entry saves
@@ -26,11 +28,13 @@ export function PropertyExpensesTab({ property }: { property: Property }) {
     if (res.ok) {
       setEntries((prev) => prev.filter((x) => x.id !== id));
       toast.deleted("Expense deleted");
+      router.refresh();
     } else {
       toast.info(res.error);
     }
   }
   const [entryOpen, setEntryOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<ExpenseEntry>();
   const [fromDate, setFromDate] = useState(`${CUR_YEAR}-01-01`);
   const [toDate, setToDate] = useState(`${CUR_YEAR}-12-31`);
   const [search, setSearch] = useState("");
@@ -75,6 +79,7 @@ export function PropertyExpensesTab({ property }: { property: Property }) {
           property={property}
           units={rooms}
           initialTab="expense"
+          initialExpenseEntry={editingEntry}
         />
       )}
 
@@ -106,7 +111,7 @@ export function PropertyExpensesTab({ property }: { property: Property }) {
 
         <div className="flex flex-wrap items-center gap-3">
           <input type="search" className="ui-input w-auto min-w-[200px] flex-1 max-w-[360px]" placeholder="Search category, description..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <button type="button" className="ui-btn ui-btn-primary" onClick={() => setEntryOpen(true)}>+ Add Expense</button>
+          <button type="button" className="ui-btn ui-btn-primary" onClick={() => { setEditingEntry(undefined); setEntryOpen(true); }}>+ Add Expense</button>
           <div className="ml-auto text-sm font-semibold" style={{ color: "var(--danger)" }}>Total: {fmtMYR(totalExpenses)}</div>
         </div>
       </div>
@@ -144,7 +149,7 @@ export function PropertyExpensesTab({ property }: { property: Property }) {
                       <ActionMenu
                         label="Expense actions"
                         items={[
-                          { label: "Edit", onClick: () => setEntryOpen(true) },
+                          { label: "Edit", onClick: () => { setEditingEntry(entry); setEntryOpen(true); } },
                           { label: "Delete", danger: true, onClick: () => deleteEntry(entry.id) },
                         ]}
                       />

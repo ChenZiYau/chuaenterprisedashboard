@@ -26,6 +26,7 @@ import { calculateElectricityCharge } from "@/lib/electricity";
 import { DateField } from "@/components/ui";
 import { useData } from "@/lib/DataContext";
 import { useToast } from "@/components/Toast";
+import { buildReceiptData, openReceiptWindow } from "@/lib/receipt";
 
 export type QuickEntryTab = "revenue" | "expense";
 
@@ -65,6 +66,8 @@ export function QuickEntryModal({
   initialTab = "revenue",
   selectableProperties,
   allUnits,
+  initialRevenueEntry,
+  initialExpenseEntry,
 }: {
   open: boolean;
   onClose: () => void;
@@ -78,15 +81,18 @@ export function QuickEntryModal({
   /** Full unit list, used to derive the selected property's units when the
    *  property picker is active. */
   allUnits?: Unit[];
+  initialRevenueEntry?: RevenueEntry;
+  initialExpenseEntry?: ExpenseEntry;
 }) {
   const { tenants, revenueEntries: seedRevenue, expenseEntries: seedExpenses } = useData();
   const toast = useToast();
   const router = useRouter();
+  const editingEntry = initialRevenueEntry ?? initialExpenseEntry;
   const [tab, setTab] = useState<QuickEntryTab>(initialTab);
   const now = useMemo(() => new Date(), []);
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
-  const [unitId, setUnitId] = useState("");
+  const [year, setYear] = useState(editingEntry?.year ?? now.getFullYear());
+  const [month, setMonth] = useState(editingEntry?.month ?? now.getMonth() + 1); // 1-12
+  const [unitId, setUnitId] = useState(initialRevenueEntry?.unitId ?? "");
 
   // When a property picker is active the popup tracks its own selected
   // property; otherwise it stays pinned to the `property` prop.
@@ -98,10 +104,11 @@ export function QuickEntryModal({
     [allUnits, units, activeProperty.id]
   );
 
-  // Session-local copies of the entries so saves are reflected in the month
-  // grid immediately (design prototype — no backend persistence).
+  // Local copies give immediate feedback; refresh them when server data changes.
   const [revenue, setRevenue] = useState<RevenueEntry[]>(seedRevenue);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>(seedExpenses);
+  useEffect(() => setRevenue(seedRevenue), [seedRevenue]);
+  useEffect(() => setExpenses(seedExpenses), [seedExpenses]);
 
   const isRoomBased = activeProperty.rentalModel === "room_rental";
   const selectedUnit = activeUnits.find((u) => u.id === unitId);
@@ -111,18 +118,18 @@ export function QuickEntryModal({
     if (!open) return;
     setTab(initialTab);
     setActivePropertyId(property.id);
-    setYear(now.getFullYear());
-    setMonth(now.getMonth() + 1);
+    setYear(editingEntry?.year ?? now.getFullYear());
+    setMonth(editingEntry?.month ?? now.getMonth() + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, property.id, initialTab, now]);
+  }, [open, property.id, initialTab, now, editingEntry?.year, editingEntry?.month]);
 
   // Snap the room selection to the active property's first unit whenever the
   // property changes (on open, or via the header picker).
   useEffect(() => {
     if (!open) return;
-    setUnitId(activeUnits[0]?.id ?? "");
+    setUnitId(initialRevenueEntry?.unitId ?? activeUnits[0]?.id ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, activeProperty.id]);
+  }, [open, activeProperty.id, initialRevenueEntry?.unitId]);
 
   // Lock body scroll + close on Escape while open.
   const requestClose = useCallback(() => onClose(), [onClose]);
@@ -157,7 +164,7 @@ export function QuickEntryModal({
     const d = new Date(lease);
     if (Number.isNaN(d.getTime())) return null;
     return { year: d.getFullYear(), month: d.getMonth() + 1 };
-  }, [unitId]);
+  }, [unitId, tenants]);
 
   if (!open) return null;
 
@@ -166,10 +173,16 @@ export function QuickEntryModal({
     // Re-fetch the server-side dashboard data so banner totals (Revenue /
     // Expenses / Net PnL) reflect the newly persisted rows.
     router.refresh();
-    setTimeout(onClose, 700);
+    onClose();
   };
 
-  const datePanel = (
+  const datePanel = editingEntry ? (
+    <div className="rounded-xl p-3" style={{ border: "1px solid var(--border-soft)" }}>
+      <p className={labelCls} style={labelStyle}>Editing {initialRevenueEntry ? "revenue" : "expense"}</p>
+      <p className="text-sm font-semibold">{MONTHS_FULL[month - 1]} {year}</p>
+      {initialRevenueEntry && <p className="text-sm mt-1">{selectedUnit?.name}</p>}
+    </div>
+  ) : (
     <div className="flex flex-col gap-3">
       {/* Revenue / Expense toggle */}
       <div className="rounded-xl p-1.5 flex flex-col gap-1.5" style={{ border: "1px solid var(--border-soft)" }}>
@@ -241,7 +254,7 @@ export function QuickEntryModal({
             </span>
           </div>
           <div className="flex-1 min-w-0 text-center">
-            {selectableProperties ? (
+            {selectableProperties && !editingEntry ? (
               <select
                 id="quick-entry-title"
                 aria-label="Property"
@@ -285,20 +298,38 @@ export function QuickEntryModal({
               unit={selectedUnit}
               year={year}
               month={month}
-              entries={revenue}
-              onSave={(entry) => {
-                let existed = false;
+              entries={initialRevenueEntry ? [initialRevenueEntry, ...revenue.filter((entry) => entry.id !== initialRevenueEntry.id)] : revenue}
+              onSave={async (entry, generateInvoice) => {
+                // Reserve the window in the click handler, before the save awaits.
+                const receiptWindow = generateInvoice ? window.open("", "_blank", "width=820,height=1000") : null;
+                const res = await saveResource<{ entry: RevenueEntry }>(
+                  initialRevenueEntry ? `/api/revenue/${encodeURIComponent(initialRevenueEntry.id)}` : "/api/revenue",
+                  initialRevenueEntry ? "PUT" : "POST", entry);
+                if (!res.ok) {
+                  receiptWindow?.close();
+                  toast.info(res.error);
+                  return false;
+                }
+                const saved = res.data.entry;
+                const existed = revenue.some((e) => e.unitId === saved.unitId && e.year === saved.year && e.month === saved.month);
                 setRevenue((prev) => {
-                  const i = prev.findIndex((e) => e.unitId === entry.unitId && e.year === entry.year && e.month === entry.month);
-                  existed = i >= 0;
-                  return i >= 0 ? prev.map((e, j) => (j === i ? { ...entry, id: e.id } : e)) : [entry, ...prev];
+                  const i = prev.findIndex((e) => e.unitId === saved.unitId && e.year === saved.year && e.month === saved.month);
+                  return i >= 0 ? prev.map((e, j) => (j === i ? saved : e)) : [saved, ...prev];
                 });
                 if (existed) toast.updated("Revenue entry updated");
                 else toast.created("Revenue entry created");
+                if (generateInvoice) {
+                  if (receiptWindow) {
+                    openReceiptWindow(buildReceiptData(saved, activeProperty, selectedUnit, selectedUnit?.tenantName, saved.invoiceNumber), true, receiptWindow);
+                  } else {
+                    toast.info("Revenue saved. Allow pop-ups, then open the invoice from Invoices.");
+                  }
+                }
                 handleSaved();
+                return true;
               }}
               datePanel={datePanel}
-              contextSlot={showRoomTabs ? <RoomTabs units={activeUnits} unitId={unitId} onSelect={setUnitId} /> : undefined}
+              contextSlot={showRoomTabs && !editingEntry ? <RoomTabs units={activeUnits} unitId={unitId} onSelect={setUnitId} /> : undefined}
               propertyId={activeProperty.id}
             />
           ) : (
@@ -309,7 +340,19 @@ export function QuickEntryModal({
               roomBased={isRoomBased}
               year={year}
               month={month}
+              existing={initialExpenseEntry}
               onSave={async (list) => {
+                if (initialExpenseEntry) {
+                  const res = await saveResource<{ entry: ExpenseEntry }>(`/api/expenses/${encodeURIComponent(initialExpenseEntry.id)}`, "PUT", list[0]);
+                  if (!res.ok) {
+                    toast.info(res.error);
+                    return false;
+                  }
+                  setExpenses((prev) => prev.map((entry) => entry.id === res.data.entry.id ? res.data.entry : entry));
+                  toast.updated("Expense updated");
+                  handleSaved();
+                  return true;
+                }
                 const res = await saveResource<{ entries: ExpenseEntry[] }>("/api/expenses", "POST", { entries: list });
                 if (!res.ok) {
                   toast.info(res.error);
@@ -352,7 +395,7 @@ function RevenueForm({
   year: number;
   month: number;
   entries: RevenueEntry[];
-  onSave: (entry: RevenueEntry) => void;
+  onSave: (entry: RevenueEntry, generateInvoice: boolean) => Promise<boolean>;
   datePanel: React.ReactNode;
   contextSlot?: React.ReactNode;
 }) {
@@ -360,20 +403,21 @@ function RevenueForm({
   const existing = entries.find((e) => e.unitId === unitId && e.year === year && e.month === month);
   const firstOfMonth = `${year}-${String(month).padStart(2, "0")}-01`;
   // Revenue only makes sense for an occupied room / unit.
-  const vacant = !unit?.tenantName;
+  const vacant = !unit || (!existing && !unit.tenantName);
 
   const [rental, setRental] = useState(existing ? String(existing.rental) : unit?.rentalRate ? String(unit.rentalRate) : "");
   const [elecUnits, setElecUnits] = useState(existing?.electricityReading != null ? String(existing.electricityReading) : "");
   const [otherCharges, setOtherCharges] = useState(existing?.other != null ? String(existing.other) : "");
   const [payDate, setPayDate] = useState(existing?.paymentDate ?? firstOfMonth);
   const [payMethod, setPayMethod] = useState<PaymentMethod>(existing?.method ?? "bank_transfer");
-  const [customPayMethod, setCustomPayMethod] = useState("");
+  const [customPayMethod, setCustomPayMethod] = useState(existing?.customPaymentMethod ?? "");
   const [payStatus, setPayStatus] = useState<PaymentStatus>(existing?.status ?? "paid");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(existing?.notes ?? "");
   const [prorate, setProrate] = useState(false);
   const [startDate, setStartDate] = useState(firstOfMonth);
   const [notesFocused, setNotesFocused] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Electricity is entered as the current meter reading. Usage for the month
@@ -385,7 +429,10 @@ function RevenueForm({
   const prevReading = previousReading(entries, unitId, year, month);
   const elecUsage = reading > 0 && prevReading != null ? Math.max(0, reading - prevReading) : 0;
   const elecBill = reading > 0 && prevReading != null ? calculateElectricityCharge(elecUsage, freeUnits) : null;
-  const elecAmount = elecBill?.chargeAmount ?? 0;
+  // Preserve historical charges when editing an unrelated field. Their meter
+  // baseline or allowance may have changed since the original bill was saved.
+  const readingUnchanged = existing && elecUnits === (existing.electricityReading == null ? "" : String(existing.electricityReading));
+  const elecAmount = readingUnchanged ? existing.electricity ?? 0 : elecBill?.chargeAmount ?? 0;
   const rentalNum = parseFloat(rental) || 0;
   const otherNum = parseFloat(otherCharges) || 0;
 
@@ -404,36 +451,46 @@ function RevenueForm({
     const e: Record<string, string> = {};
     if (!unitId) e.unitId = "Select a room or unit.";
     if (vacant) e.unitId = "This room has no tenant — revenue can't be recorded.";
-    if (!rental || rentalNum <= 0) e.rental = "Enter a rental amount greater than 0.";
+    if (!rental || !Number.isFinite(rentalNum) || rentalNum <= 0) e.rental = "Enter a rental amount greater than 0.";
+    if (!Number.isFinite(reading) || reading < 0 || (!readingUnchanged && prevReading != null && elecUnits !== "" && reading < prevReading)) e.elecUnits = "Enter a meter reading at least as high as the previous reading.";
+    if (!Number.isFinite(otherNum) || otherNum < 0) e.other = "Other charges cannot be negative.";
     if (!payDate) e.payDate = "Enter a payment date.";
-    if (payMethod === "other" && !customPayMethod.trim()) e.customPayMethod = "Describe the payment method.";
+    if (payMethod === "other" && !customPayMethod.trim() && existing?.method !== "other") e.customPayMethod = "Describe the payment method.";
     if (prorate && !startInMonth) e.startDate = `Start date must be within ${MONTHS_FULL[month - 1]} ${year}.`;
     return e;
   }
 
-  function handleSave(generateInvoice: boolean) {
+  async function handleSave(generateInvoice: boolean) {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
+    if (saving) return;
     setErrors({});
-    setSaved(true);
-    onSave({
-      id: `r-${Date.now()}`,
-      propertyId,
-      unitId,
-      month,
-      year,
-      paymentDate: payDate,
-      rental: effectiveRental,
-      // Persist the meter reading (not the usage) so it becomes next month's
-      // "last month" reading for the delta calculation.
-      electricityReading: reading || null,
-      electricity: elecAmount || null,
-      other: otherNum || null,
-      method: payMethod,
-      status: payStatus,
-      invoiceGenerated: generateInvoice,
-      invoiceNumber: `${(unit?.name ?? "U").slice(-1)}${month}-${monthStr}${String(year).slice(2)}`,
-    });
+    setSaving(true);
+    try {
+      const ok = await onSave({
+        id: existing?.id ?? `r-${Date.now()}`,
+        propertyId,
+        unitId,
+        month,
+        year,
+        paymentDate: payDate,
+        rental: effectiveRental,
+        // Persist the meter reading (not the usage) so it becomes next month's
+        // "last month" reading for the delta calculation.
+        electricityReading: elecUnits === "" ? null : reading,
+        electricity: elecAmount || null,
+        other: otherNum || null,
+        method: payMethod,
+        customPaymentMethod: payMethod === "other" ? customPayMethod.trim() : undefined,
+        notes,
+        status: payStatus,
+        invoiceGenerated: Boolean(existing?.invoiceGenerated) || generateInvoice,
+        invoiceNumber: existing?.invoiceNumber || `${(unit?.name ?? "U").slice(-1)}${month}-${monthStr}${String(year).slice(2)}`,
+      }, generateInvoice);
+      if (ok) setSaved(true);
+    } finally {
+      setSaving(false);
+    }
   }
 
   // Clear a single field's error so each message persists until its own
@@ -547,8 +604,9 @@ function RevenueForm({
             <label className={labelCls} style={labelStyle}>Electricity Usage (kWh)</label>
             <input
               type="number" inputMode="decimal" min={0} step="1" placeholder="e.g. 3800"
-              className={fieldCls} value={elecUnits} onChange={onText(setElecUnits)}
+              className={fieldCls} value={elecUnits} onChange={onText(setElecUnits, "elecUnits")}
             />
+            {errors.elecUnits && <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>{errors.elecUnits}</p>}
             {reading > 0 && prevReading != null && elecBill ? (
               <p className="text-xs mt-1.5" style={{ color: "var(--text-muted)" }}>
                 {reading} &minus; {prevReading} (last month) = {elecUsage} kWh &minus; {freeUnits} free = {elecBill.chargeableUnits} kWh &#8594;{" "}
@@ -570,8 +628,9 @@ function RevenueForm({
             <label className={labelCls} style={labelStyle}>Other Charges (RM)</label>
             <input
               type="number" inputMode="decimal" min={0} step="0.01" placeholder="0.00"
-              className={fieldCls} value={otherCharges} onChange={onText(setOtherCharges)}
+              className={fieldCls} value={otherCharges} onChange={onText(setOtherCharges, "other")}
             />
+            {errors.other && <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>{errors.other}</p>}
           </div>
 
           {/* Payment */}
@@ -639,9 +698,9 @@ function RevenueForm({
           <span className="text-xl font-bold tabular-nums" style={{ color: "var(--accent)" }}>{fmtMYR(totalAmount)}</span>
         </div>
         <div className="flex items-center justify-end gap-2">
-          <button type="button" className="ui-btn justify-center" disabled={vacant} style={{ opacity: vacant ? 0.55 : 1 }} onClick={() => handleSave(false)}>Save only</button>
-          <button type="button" className="ui-btn ui-btn-primary justify-center" disabled={vacant} style={{ opacity: vacant ? 0.55 : 1 }} onClick={() => handleSave(true)}>
-            {existing ? "Update & invoice" : "Save & invoice"}
+          <button type="button" className="ui-btn justify-center" disabled={vacant || saving} style={{ opacity: vacant || saving ? 0.55 : 1 }} onClick={() => handleSave(false)}>{saving ? "Saving…" : "Save only"}</button>
+          <button type="button" className="ui-btn ui-btn-primary justify-center" disabled={vacant || saving} style={{ opacity: vacant || saving ? 0.55 : 1 }} onClick={() => handleSave(true)}>
+            {saving ? "Saving…" : existing ? "Update & invoice" : "Save & invoice"}
           </button>
         </div>
       </div>
@@ -677,6 +736,7 @@ function ExpenseForm({
   month,
   onSave,
   datePanel,
+  existing,
 }: {
   propertyId: string;
   /** All of the property's units — used for the room selector (room rentals)
@@ -687,31 +747,23 @@ function ExpenseForm({
   month: number;
   onSave: (entries: ExpenseEntry[]) => Promise<boolean>;
   datePanel: React.ReactNode;
+  existing?: ExpenseEntry;
 }) {
-  const [unitId, setUnitId] = useState("");
-  const [items, setItems] = useState<ExpenseItem[]>([newItem()]);
+  const [unitId, setUnitId] = useState(existing?.unitId ?? "");
+  const [items, setItems] = useState<ExpenseItem[]>(() => existing ? [{
+    key: existing.id, category: existing.category, description: existing.description ?? "",
+    amount: String(existing.amount), date: existing.expenseDate,
+  }] : [newItem()]);
   const [savedCount, setSavedCount] = useState(0);
   const [saving, setSaving] = useState(false);
 
-  const showRoomSelector = roomBased && units.length > 1;
-  const validItems = items.filter((it) => (parseFloat(it.amount) || 0) > 0);
+  const showRoomSelector = roomBased && units.length > 0;
+  const enteredItems = items.filter((it) => it.amount !== "" || it.description.trim() !== "");
+  const validItems = enteredItems.filter((it) => Number.isFinite(Number(it.amount)) && Number(it.amount) > 0 && it.date);
   const total = validItems.reduce((s, it) => s + (parseFloat(it.amount) || 0), 0);
-
-  // Expenses may only be recorded against an occupied room / unit. A specific
-  // room needs its own tenant; "All" (whole property) and whole-unit
-  // properties need at least one tenant somewhere in the property.
-  const selectedUnit = units.find((u) => u.id === unitId);
-  const anyTenant = units.some((u) => !!u.tenantName);
-  const vacancyMsg =
-    roomBased && showRoomSelector && unitId
-      ? selectedUnit?.tenantName
-        ? null
-        : `${selectedUnit?.name ?? "This room"} is vacant — assign a tenant before recording an expense for it.`
-      : anyTenant
-        ? null
-        : `This ${roomBased ? "property has no tenants" : "unit has no tenant"} — assign a tenant before recording expenses.`;
-
-  const canSave = validItems.length > 0 && !vacancyMsg;
+  // Repairs and other costs are valid even while the property is vacant.
+  const incompleteItems = validItems.length !== enteredItems.length;
+  const canSave = validItems.length > 0 && !incompleteItems;
 
   function updateItem(key: string, patch: Partial<ExpenseItem>) {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
@@ -724,21 +776,21 @@ function ExpenseForm({
     try {
       const ok = await onSave(
         validItems.map((it, i) => ({
-          id: `e-${Date.now()}-${i}`,
+          id: existing?.id ?? `e-${Date.now()}-${i}`,
           propertyId,
-          unitId: showRoomSelector ? unitId || null : null,
+          unitId: showRoomSelector ? unitId || null : existing?.unitId ?? null,
           month,
           year,
           expenseDate: it.date || todayISO(),
           category: it.category,
           description: it.description.trim() || null,
-          type: null,
+          type: existing?.type ?? null,
           amount: parseFloat(it.amount) || 0,
         }))
       );
       if (!ok) return; // keep the form intact so the user can retry
       setSavedCount(validItems.length);
-      setItems([newItem()]);
+      if (!existing) setItems([newItem()]);
     } finally {
       setSaving(false);
     }
@@ -766,10 +818,10 @@ function ExpenseForm({
             </div>
           )}
 
-          {vacancyMsg && (
+          {incompleteItems && (
             <div className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs" style={{ background: "rgba(211,84,84,0.10)", border: "1px solid var(--danger)", color: "var(--danger)" }}>
               <span className="mt-px">&#9888;</span>
-              <span>{vacancyMsg}</span>
+              <span>Enter a positive amount and payment date for every item, or remove unfinished items before saving.</span>
             </div>
           )}
 
@@ -781,7 +833,7 @@ function ExpenseForm({
             <div key={it.key} className="rounded-xl p-3 flex flex-col gap-2.5" style={{ background: "var(--surface-muted)", border: "1px solid var(--border-soft)" }}>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--text-faint)" }}>Item {i + 1}</span>
-                <button
+                {!existing && <button
                   type="button"
                   onClick={() => setItems((prev) => (prev.length === 1 ? [newItem()] : prev.filter((x) => x.key !== it.key)))}
                   aria-label="Remove item"
@@ -789,7 +841,7 @@ function ExpenseForm({
                   style={{ color: "var(--text-faint)" }}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                </button>
+                </button>}
               </div>
 
               {/* Category + amount */}
@@ -832,14 +884,14 @@ function ExpenseForm({
             </div>
           ))}
 
-          <button
+          {!existing && <button
             type="button"
             onClick={() => setItems((prev) => [...prev, newItem()])}
             className="w-full rounded-xl py-2.5 text-sm font-medium transition hover:bg-[var(--surface-muted)]"
             style={{ border: "1px dashed var(--border-strong)", color: "var(--accent)", background: "transparent" }}
           >
             + Add another item
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -862,7 +914,7 @@ function ExpenseForm({
             type="button" className="ui-btn ui-btn-primary justify-center" disabled={!canSave || saving}
             style={{ opacity: !canSave || saving ? 0.55 : 1 }} onClick={handleSave}
           >
-            {saving ? "Saving…" : validItems.length > 1 ? `Save ${validItems.length} Expenses` : "Save Expenses"}
+            {saving ? "Saving…" : existing ? "Update Expense" : validItems.length > 1 ? `Save ${validItems.length} Expenses` : "Save Expenses"}
           </button>
         </div>
       </div>

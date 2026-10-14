@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AddPropertyModal } from "@/components/AddPropertyModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -11,7 +11,7 @@ import { PropertyInvoiceTab } from "@/components/PropertyInvoiceTab";
 import { PropertyImagesTab } from "@/components/PropertyImagesTab";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
-import { saveResource } from "@/lib/clientApi";
+import { deleteResource, saveResource } from "@/lib/clientApi";
 import {
   PROPERTY_STATUS_LABEL,
   RENTAL_MODEL_LABEL,
@@ -20,7 +20,7 @@ import {
   type Unit,
 } from "@/lib/data";
 
-const CUR_YEAR = 2026;
+const CUR_YEAR = new Date().getFullYear();
 
 function statMYR(value: number) {
   return new Intl.NumberFormat("en-MY", { style: "currency", currency: "MYR", maximumFractionDigits: 0 }).format(value);
@@ -57,11 +57,13 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const { id } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { getProperty, getUnitsForProperty, revenueEntries, expenseEntries, hideProperty, unhideProperty } = useData();
+  const { getProperty, getUnitsForProperty, revenueEntries, expenseEntries, hideProperty, unhideProperty, upsertProperty } = useData();
   const toast = useToast();
 
   const [property, setProperty] = useState<Property | undefined>(() => getProperty(id));
   const [units, setUnits] = useState<Unit[]>(() => getUnitsForProperty(id));
+  useEffect(() => setProperty(getProperty(id)), [id, getProperty]);
+  useEffect(() => setUnits(getUnitsForProperty(id)), [id, getUnitsForProperty]);
   const [imgBroken, setImgBroken] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
@@ -102,13 +104,12 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     toast.undoable(`${p.name} moved to Trash. In case it was accidental, you can undo.`, {
       onUndo: () => unhideProperty(p.id),
       onCommit: async () => {
-        const res = await fetch(`/api/properties/${encodeURIComponent(p.id)}`, { method: "DELETE" });
+        const res = await deleteResource(`/api/properties/${encodeURIComponent(p.id)}`);
         if (res.ok) {
           router.refresh();
         } else {
           unhideProperty(p.id);
-          const data = await res.json().catch(() => ({}));
-          toast.info((data as { error?: string }).error ?? "Could not delete the property.");
+          toast.info(res.error);
         }
       },
     });
@@ -220,6 +221,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
           }
           setProperty(res.data.property);
           setUnits(res.data.units);
+          upsertProperty(res.data.property, res.data.units);
+          router.refresh();
           setEditOpen(false);
           toast.updated(`Property ${res.data.property.name} updated`);
         }}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DateField } from "@/components/ui";
 import type { Property, Tenant, Unit } from "@/lib/data";
@@ -51,7 +51,7 @@ export function AddTenantModal({
   properties: Property[];
   units: Unit[];
   tenants: Tenant[];
-  onAdd: (tenant: Tenant) => void;
+  onAdd: (tenant: Tenant) => void | boolean | Promise<void | boolean>;
   editTenant?: Tenant | null;
 }) {
   const today = useMemo(() => {
@@ -74,10 +74,19 @@ export function AddTenantModal({
   const [leaseStart, setLeaseStart] = useState(today);
   const [leaseEnd, setLeaseEnd] = useState(nextYear);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const initializedFor = useRef<string | null>(null);
 
   // Fresh form each time the modal opens — pre-filled when editing.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initializedFor.current = null;
+      return;
+    }
+    const formKey = editTenant?.id ?? "new";
+    if (initializedFor.current === formKey) return;
+    initializedFor.current = formKey;
     setName(editTenant?.name ?? "");
     setIcNumber(editTenant?.icNumber ?? "");
     setPhone(editTenant?.phone ?? "");
@@ -91,6 +100,7 @@ export function AddTenantModal({
     setLeaseStart(editTenant?.leaseStart ?? today);
     setLeaseEnd(editTenant?.leaseEnd ?? nextYear);
     setErrors({});
+    setSaving(false);
   }, [open, editTenant, units, today, nextYear]);
 
   // Clear a single field's error so each message persists until its own
@@ -104,7 +114,9 @@ export function AddTenantModal({
     });
   }, []);
 
-  const requestClose = useCallback(() => onClose(), [onClose]);
+  const requestClose = useCallback(() => {
+    if (!savingRef.current) onClose();
+  }, [onClose]);
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -130,14 +142,16 @@ export function AddTenantModal({
 
   if (!open) return null;
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (savingRef.current) return;
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = "Enter the tenant's name.";
     if (!icNumber.trim()) errs.icNumber = "Enter the IC / passport number.";
     if (!phone.trim()) errs.phone = "Enter a phone number.";
     if (!propertyId) errs.propertyId = "Select a property.";
     if (!unitId) errs.unitId = "Select a room or unit.";
+    else if (!propertyUnits.some((unit) => unit.id === unitId)) errs.unitId = "Select a room or unit in this property.";
     if (!leaseStart) errs.leaseStart = "Enter the lease start date.";
     if (!leaseEnd) errs.leaseEnd = "Enter the lease end date.";
     if (leaseStart && leaseEnd && leaseEnd < leaseStart) errs.leaseEnd = "Lease end must be after the start.";
@@ -145,17 +159,26 @@ export function AddTenantModal({
       setErrors(errs);
       return;
     }
-    onAdd({
-      id: editTenant?.id ?? `t-${Date.now()}`,
-      name: name.trim(),
-      icNumber: icNumber.trim(),
-      phone: phone.trim(),
-      email: email.trim() || null,
-      unitId,
-      leaseStart,
-      leaseEnd,
-    });
-    onClose();
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const result = await onAdd({
+        id: editTenant?.id ?? `t-${Date.now()}`,
+        name: name.trim(),
+        icNumber: icNumber.trim(),
+        phone: phone.trim(),
+        email: email.trim() || null,
+        unitId,
+        leaseStart,
+        leaseEnd,
+      });
+      if (result !== false) onClose();
+    } catch {
+      setErrors((prev) => ({ ...prev, submit: "Could not save the tenant. Your entries have been kept." }));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   }
 
   return createPortal(
@@ -314,9 +337,16 @@ export function AddTenantModal({
 
         {/* Footer */}
         <div className="flex flex-wrap gap-2 justify-end px-6 py-4 shrink-0" style={{ borderTop: "1px solid var(--border-soft)", background: "var(--surface)" }}>
-          <button type="button" className="ui-btn" onClick={requestClose}>Cancel</button>
-          <button type="submit" form="add-tenant-form" className="ui-btn ui-btn-primary">
-            {editTenant ? "Save Changes" : "Add Tenant"}
+          {errors.submit && <p role="alert" className="w-full text-xs" style={{ color: "var(--danger)" }}>{errors.submit}</p>}
+          <button type="button" className="ui-btn" onClick={requestClose} disabled={saving}>Cancel</button>
+          <button
+            type="submit"
+            form="add-tenant-form"
+            className="ui-btn ui-btn-primary"
+            disabled={saving}
+            style={saving ? { opacity: 0.6, cursor: "wait" } : undefined}
+          >
+            {saving ? "Saving…" : editTenant ? "Save Changes" : "Add Tenant"}
           </button>
         </div>
       </div>
