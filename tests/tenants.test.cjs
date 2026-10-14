@@ -79,7 +79,7 @@ test('tenant payload normalizes required text and allows equal lease dates', () 
 test('POST and PUT reject invalid types, incomplete records and invalid lease dates before database access', async () => {
   const db = fixture();
   const invalid = [null, [], 10, { ...input, name: 4 }, { ...input, icNumber: '' },
-    { ...input, phone: null }, { ...input, unitId: ' ' }, { ...input, email: {} },
+    { ...input, phone: null }, { ...input, unitId: 123 }, { ...input, email: {} },
     { ...input, leaseStart: '2026-02-30' }, { ...input, leaseEnd: '2025-12-31' },
     { ...input, leaseStart: '2026-1-1' }, { name: 'Alice' }];
   for (const body of invalid) {
@@ -106,6 +106,31 @@ test('creating a tenant returns the saved ID and marks the unit rented', async (
   assert.equal(saved.tenant.unitId, 'unit-1');
   assert.equal(db.state.tenants.length, 1);
   assert.deepEqual(db.state.units[0], { id: 'unit-1', tenant_name: 'Alice', is_rented: true });
+});
+
+test('tenants can be created without placement and assigned later', async () => {
+  for (const unitId of ['', ' ', null, undefined]) {
+    const db = fixture();
+    const response = await db.POST(request({ ...input, unitId }));
+    assert.equal(response.status, 200);
+    assert.equal(db.state.tenants[0].unit_id, null);
+    assert.equal((await response.json()).tenant.unitId, '');
+    assert.equal(db.calls.some((call) => call.table === 'units'), false);
+    const assigned = await db.PUT(request(input), params('new-tenant'));
+    assert.equal(assigned.status, 200);
+    assert.equal(db.state.tenants[0].unit_id, 'unit-1');
+    assert.equal(db.state.units[0].tenant_name, 'Alice');
+  }
+});
+
+test('clearing placement preserves the tenant and frees its previous unit', async () => {
+  const db = fixture({ tenants: [tenant('tenant-1', 'Alice', 'unit-1')],
+    units: [{ id: 'unit-1', tenant_name: 'Alice', is_rented: true }] });
+  assert.equal((await db.PUT(request({ ...input, unitId: '' }), params())).status, 200);
+  assert.equal(db.state.tenants.length, 1);
+  assert.equal(db.state.tenants[0].unit_id, null);
+  assert.equal(db.state.units[0].tenant_name, null);
+  assert.equal(db.state.units[0].is_rented, false);
 });
 
 test('moving a tenant preserves the old unit co-tenant and updates the destination', async () => {

@@ -33,8 +33,8 @@ function Field({
 }
 
 /**
- * Add / Edit Tenant popup — records the person and, crucially, where they
- * live: pick a property, then one of its rooms/units. Pass `editTenant` to
+ * Add / Edit Tenant popup — records the person with optional placement:
+ * pick a property and unit now, or assign them later. Pass `editTenant` to
  * open pre-filled in edit mode; submitting then keeps the tenant's id.
  */
 export function AddTenantModal({
@@ -149,9 +149,7 @@ export function AddTenantModal({
     if (!name.trim()) errs.name = "Enter the tenant's name.";
     if (!icNumber.trim()) errs.icNumber = "Enter the IC / passport number.";
     if (!phone.trim()) errs.phone = "Enter a phone number.";
-    if (!propertyId) errs.propertyId = "Select a property.";
-    if (!unitId) errs.unitId = "Select a room or unit.";
-    else if (!propertyUnits.some((unit) => unit.id === unitId)) errs.unitId = "Select a room or unit in this property.";
+    if (unitId && !propertyUnits.some((unit) => unit.id === unitId)) errs.unitId = "Select a room or unit in this property.";
     if (!leaseStart) errs.leaseStart = "Enter the lease start date.";
     if (!leaseEnd) errs.leaseEnd = "Enter the lease end date.";
     if (leaseStart && leaseEnd && leaseEnd < leaseStart) errs.leaseEnd = "Lease end must be after the start.";
@@ -212,7 +210,7 @@ export function AddTenantModal({
             <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
               {editTenant
                 ? `Update ${editTenant.name}'s details, placement, or lease.`
-                : "Who they are, and which property and room they live in."}
+                : "Add their details now. Placement can be assigned later."}
             </p>
           </div>
           <button
@@ -276,19 +274,31 @@ export function AddTenantModal({
           {/* Placement — property, then one of its rooms */}
           <div className="flex flex-col gap-3">
             <p className="text-[10px] uppercase tracking-[0.16em]" style={{ color: "var(--text-faint)" }}>Placement</p>
-            <Field label="Property">
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>Optional. Leave the room / unit unselected to save this tenant as unassigned.</p>
+            <Field label="Property (optional)">
               <select
                 className="ui-select w-full"
                 style={errors.propertyId ? { borderColor: "var(--danger)" } : undefined}
                 value={propertyId}
-                onChange={(e) => { setPropertyId(e.target.value); setUnitId(""); clearError("propertyId"); }}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const property = properties.find((p) => p.id === id);
+                  const availableUnits = units.filter((u) => u.propertyId === id);
+                  const wholeUnit = property?.rentalModel === "whole_unit"
+                    ? availableUnits.find((u) => u.name.trim().toLowerCase() === "whole unit") ?? (availableUnits.length === 1 ? availableUnits[0] : undefined)
+                    : undefined;
+                  setPropertyId(id);
+                  setUnitId(wholeUnit?.id ?? "");
+                  clearError("propertyId");
+                  clearError("unitId");
+                }}
               >
-                <option value="">Select property...</option>
+                <option value="">Unassigned / decide later</option>
                 {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               {errors.propertyId && <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>{errors.propertyId}</p>}
             </Field>
-            <Field label="Room / Unit">
+            <Field label="Room / Unit (optional)">
               <select
                 className="ui-select w-full"
                 style={errors.unitId ? { borderColor: "var(--danger)" } : undefined}
@@ -296,7 +306,7 @@ export function AddTenantModal({
                 disabled={!propertyId}
                 onChange={(e) => { setUnitId(e.target.value); clearError("unitId"); }}
               >
-                <option value="">{propertyId ? "Select room or unit..." : "Select a property first"}</option>
+                <option value="">{propertyId ? "Unassigned / decide later" : "Select a property first (optional)"}</option>
                 {propertyUnits.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name}{occupiedUnitIds.has(u.id) ? " — occupied" : ""}

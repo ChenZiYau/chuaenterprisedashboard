@@ -3,7 +3,7 @@ export type TenantRowInput = {
   ic_number: string;
   phone: string;
   email: string | null;
-  unit_id: string;
+  unit_id: string | null;
   lease_start: string;
   lease_end: string;
 };
@@ -25,7 +25,7 @@ export function parseTenantInput(body: unknown):
   if (typeof t.name !== "string" || !t.name.trim()) return { error: "Tenant name is required." };
   if (typeof t.icNumber !== "string" || !t.icNumber.trim()) return { error: "IC / Passport number is required." };
   if (typeof t.phone !== "string" || !t.phone.trim()) return { error: "Phone number is required." };
-  if (typeof t.unitId !== "string" || !t.unitId.trim()) return { error: "A unit must be selected." };
+  if (t.unitId != null && typeof t.unitId !== "string") return { error: "Unit must be a valid selection or left unassigned." };
   if (t.email != null && typeof t.email !== "string") return { error: "Email must be text." };
   if (!isDate(t.leaseStart) || !isDate(t.leaseEnd)) return { error: "Valid lease start and end dates are required." };
   if (t.leaseEnd < t.leaseStart) return { error: "Lease end cannot be before the start." };
@@ -35,7 +35,7 @@ export function parseTenantInput(body: unknown):
       ic_number: t.icNumber.trim(),
       phone: t.phone.trim(),
       email: typeof t.email === "string" ? t.email.trim() || null : null,
-      unit_id: t.unitId.trim(),
+      unit_id: typeof t.unitId === "string" ? t.unitId.trim() || null : null,
       lease_start: t.leaseStart,
       lease_end: t.leaseEnd,
     },

@@ -80,7 +80,7 @@ export type Tenant = {
   icNumber: string;
   phone: string;
   email: string | null;
-  unitId: string;
+  unitId: string; // Empty when unassigned; stored as NULL in Supabase.
   leaseStart: string; // YYYY-MM-DD
   leaseEnd: string; // YYYY-MM-DD
 };
