@@ -1,7 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { normalizeSlug, slugError, slugify } from "@/lib/slug";
-import type { Property, Unit } from "@/lib/data";
+import { PROPERTY_STATUS_LABEL, PROPERTY_TYPE_LABEL, type Property, type Unit } from "@/lib/data";
 
 // Payload the Add/Edit Property form sends. Ids on units are either real
 // database uuids (existing rows being edited) or client-side placeholders
@@ -15,6 +15,12 @@ export function parsePropertyPayload(body: unknown): PropertyPayload | null {
   const b = body as Partial<PropertyPayload> | null;
   const p = b?.property;
   if (!p || typeof p.name !== "string" || !p.name.trim()) return null;
+  for (const field of ["slug", "shortName", "city", "address", "state", "postcode", "description", "imageUrl"] as const) {
+    if (p[field] != null && typeof p[field] !== "string") return null;
+  }
+  if (p.rentalModel !== "room_rental" && p.rentalModel !== "whole_unit") return null;
+  if (p.propertyType != null && (typeof p.propertyType !== "string" || !Object.hasOwn(PROPERTY_TYPE_LABEL, p.propertyType))) return null;
+  if (p.status != null && (typeof p.status !== "string" || !Object.hasOwn(PROPERTY_STATUS_LABEL, p.status))) return null;
   // An omitted or malformed unit list must never be treated as a request to
   // remove every existing unit during an edit.
   if (!Array.isArray(b?.units) || b.units.length === 0) return null;

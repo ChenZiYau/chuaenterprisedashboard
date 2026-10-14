@@ -34,8 +34,14 @@ export async function POST(req: NextRequest) {
       .eq("unit_id", body.unitId)
       .eq("month", body.month)
       .eq("year", body.year)
-      .limit(1);
+      .limit(2);
     if (findErr) throw findErr;
+    if (existing && existing.length > 1) {
+      return NextResponse.json(
+        { error: "Multiple entries exist for this unit and billing period. Edit the intended record from Revenue." },
+        { status: 409 },
+      );
+    }
     const row = revenueRow(body, existing?.[0]);
 
     let result: Record<string, unknown>;

@@ -31,6 +31,15 @@ test('revenue create persists amounts, notes, custom method and returns a server
   assert.equal(db.state.revenue[0].total_amount, 830);
 });
 
+test('same-period create refuses to overwrite an arbitrary duplicate revenue record', async () => {
+  const db = fixture();
+  db.state.revenue.push(...['r1', 'r2'].map((id) => ({ id, unit_id: 'u1', month: 10, year: 2026, rental_amount: 900 })));
+  const res = await db.revenueCreate(request(revenue));
+  assert.equal(res.status, 409);
+  assert.equal(db.calls.some((q) => q.action !== 'select'), false);
+  assert.equal(db.state.revenue.length, 2);
+});
+
 test('revenue edits update the selected row without resetting generated invoices', async () => {
   const db = fixture();
   const { entry } = await (await db.revenueCreate(request({ ...revenue, invoiceGenerated: true }))).json();

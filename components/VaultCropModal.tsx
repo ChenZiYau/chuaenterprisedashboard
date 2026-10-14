@@ -69,6 +69,15 @@ export function VaultCropModal({ src, initial, onCancel, onApply }: VaultCropMod
 
   function onImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
     const { width, height } = e.currentTarget;
+    if (initial && e.currentTarget.naturalWidth && e.currentTarget.naturalHeight) {
+      const sx = width / e.currentTarget.naturalWidth;
+      const sy = height / e.currentTarget.naturalHeight;
+      const restored = clampPixelCrop({ unit: "px", x: initial.x * sx, y: initial.y * sy,
+        width: initial.width * sx, height: initial.height * sy }, width, height);
+      setCrop(restored);
+      setCompleted(restored);
+      return;
+    }
     const next = centeredCrop(width, height, ratioFor(aspect));
     setCrop(next);
     setCompleted(toPixelCrop(next, width, height));
@@ -94,8 +103,9 @@ export function VaultCropModal({ src, initial, onCancel, onApply }: VaultCropMod
     const dispW = naturalW / sx;
     const ratio = ratioFor(aspect);
     const dispH = ratio ? dispW / ratio : completed.height;
-    setCompleted(clampPixelCrop({ ...completed, width: dispW, height: dispH, unit: "px" }, img.width, img.height));
-    setCrop({ ...completed, width: dispW, height: dispH, unit: "px" });
+    const next = clampPixelCrop({ ...completed, width: dispW, height: dispH, unit: "px" }, img.width, img.height);
+    setCompleted(next);
+    setCrop(next);
     if (ratio) setHInput(String(Math.round(dispH * sy)));
   }
 
@@ -110,8 +120,9 @@ export function VaultCropModal({ src, initial, onCancel, onApply }: VaultCropMod
     const dispH = naturalH / sy;
     const ratio = ratioFor(aspect);
     const dispW = ratio ? dispH * ratio : completed.width;
-    setCompleted(clampPixelCrop({ ...completed, width: dispW, height: dispH, unit: "px" }, img.width, img.height));
-    setCrop({ ...completed, width: dispW, height: dispH, unit: "px" });
+    const next = clampPixelCrop({ ...completed, width: dispW, height: dispH, unit: "px" }, img.width, img.height);
+    setCompleted(next);
+    setCrop(next);
     if (ratio) setWInput(String(Math.round(dispW * sx)));
   }
 

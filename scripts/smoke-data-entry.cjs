@@ -190,6 +190,35 @@ async function main() {
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForFunction(() => document.querySelector('tbody')?.textContent.includes('Generated'));
     console.log('PASS: invoice generation persists across reload');
+
+    await page.goto(`${base}/expenses`, { waitUntil: 'networkidle0' });
+    await page.click('button[aria-label="Expense actions"]');
+    await clickText('Delete');
+    await page.waitForFunction(() => !document.querySelector('tbody')?.textContent.includes('150.00'));
+    assert.equal(db.state.expenses.length, 0);
+    await page.reload({ waitUntil: 'networkidle0' });
+    assert.equal(db.state.expenses.length, 0);
+    console.log('PASS: expense Delete persists and removes the displayed row');
+
+    await page.goto(`${base}/invoices`, { waitUntil: 'networkidle0' });
+    await page.click('button[aria-label="Invoice actions"]');
+    await clickText('Delete');
+    await clickText('Delete revenue entry');
+    await page.waitForFunction(() => !document.querySelector('tbody')?.textContent.includes('875.00'));
+    assert.equal(db.state.revenue.length, 0);
+    console.log('PASS: confirmed invoice deletion removes its revenue record');
+
+    await page.goto(`${base}/properties`, { waitUntil: 'networkidle0' });
+    await fill('input[type="search"]', 'no matching property');
+    await page.waitForFunction(() => !document.querySelector('a[aria-label="Open Smoke House Updated"]'));
+    await fill('input[type="search"]', 'Smoke');
+    await page.waitForSelector('a[aria-label="Open Smoke House Updated"]');
+    await page.goto(`${base}/settings`, { waitUntil: 'networkidle0' });
+    await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Dark')).click());
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+    console.log('PASS: property search and persisted theme controls');
     assert.deepEqual(errors, [], 'Browser must not report uncaught application errors');
   } catch (error) {
     console.error(logs.slice(-6000));

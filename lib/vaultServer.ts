@@ -37,6 +37,7 @@ export async function vaultFetch(
     return await fetch(`${baseUrl}${path}`, {
       cache: "no-store",
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(20_000),
       headers: {
         ...(init.headers ?? {}),
         Authorization: `Bearer ${apiKey}`,

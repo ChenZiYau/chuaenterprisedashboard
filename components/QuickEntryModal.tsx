@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { saveResource } from "@/lib/clientApi";
@@ -87,6 +87,22 @@ export function QuickEntryModal({
   const { tenants, revenueEntries: seedRevenue, expenseEntries: seedExpenses } = useData();
   const toast = useToast();
   const router = useRouter();
+  const savePending = useRef(false);
+  const [saving, setSaving] = useState(false);
+  async function runSave(action: () => Promise<boolean>) {
+    if (savePending.current) return false;
+    savePending.current = true;
+    setSaving(true);
+    try {
+      return await action();
+    } catch {
+      toast.info("The save could not be confirmed. Check the record before retrying.");
+      return false;
+    } finally {
+      savePending.current = false;
+      setSaving(false);
+    }
+  }
   const editingEntry = initialRevenueEntry ?? initialExpenseEntry;
   const [tab, setTab] = useState<QuickEntryTab>(initialTab);
   const now = useMemo(() => new Date(), []);
@@ -132,7 +148,9 @@ export function QuickEntryModal({
   }, [open, activeProperty.id, initialRevenueEntry?.unitId]);
 
   // Lock body scroll + close on Escape while open.
-  const requestClose = useCallback(() => onClose(), [onClose]);
+  const requestClose = useCallback(() => {
+    if (!savePending.current) onClose();
+  }, [onClose]);
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -246,6 +264,7 @@ export function QuickEntryModal({
         }}
       >
         {/* Header — Quick Entry + date left, property + tenant centered */}
+        <fieldset disabled={saving} className="contents" aria-busy={saving}>
         <div className="flex items-start gap-4 px-6 py-5 shrink-0" style={{ borderBottom: "1px solid var(--border-soft)" }}>
           <div className="min-w-0 shrink-0 w-32">
             <p className="text-[11px] uppercase tracking-[0.16em]" style={{ color: "var(--text-faint)" }}>Quick Entry</p>
@@ -294,12 +313,12 @@ export function QuickEntryModal({
         <div className="flex-1 min-h-0 flex flex-col">
           {tab === "revenue" ? (
             <RevenueForm
-              key={`${activeProperty.id}:${unitId}:${year}-${month}`}
+              key={`${activeProperty.id}:${unitId}:${year}-${month}:${initialRevenueEntry?.id ?? "new"}`}
               unit={selectedUnit}
               year={year}
               month={month}
               entries={initialRevenueEntry ? [initialRevenueEntry, ...revenue.filter((entry) => entry.id !== initialRevenueEntry.id)] : revenue}
-              onSave={async (entry, generateInvoice) => {
+              onSave={(entry, generateInvoice) => runSave(async () => {
                 // Reserve the window in the click handler, before the save awaits.
                 const receiptWindow = generateInvoice ? window.open("", "_blank", "width=820,height=1000") : null;
                 const res = await saveResource<{ entry: RevenueEntry }>(
@@ -327,21 +346,21 @@ export function QuickEntryModal({
                 }
                 handleSaved();
                 return true;
-              }}
+              })}
               datePanel={datePanel}
               contextSlot={showRoomTabs && !editingEntry ? <RoomTabs units={activeUnits} unitId={unitId} onSelect={setUnitId} /> : undefined}
               propertyId={activeProperty.id}
             />
           ) : (
             <ExpenseForm
-              key={`${activeProperty.id}:${year}-${month}`}
+              key={`${activeProperty.id}:${year}-${month}:${initialExpenseEntry?.id ?? "new"}`}
               propertyId={activeProperty.id}
               units={activeUnits}
               roomBased={isRoomBased}
               year={year}
               month={month}
               existing={initialExpenseEntry}
-              onSave={async (list) => {
+              onSave={(list) => runSave(async () => {
                 if (initialExpenseEntry) {
                   const res = await saveResource<{ entry: ExpenseEntry }>(`/api/expenses/${encodeURIComponent(initialExpenseEntry.id)}`, "PUT", list[0]);
                   if (!res.ok) {
@@ -362,11 +381,12 @@ export function QuickEntryModal({
                 toast.created(list.length > 1 ? `${list.length} expenses created` : "Expense created");
                 handleSaved();
                 return true;
-              }}
+              })}
               datePanel={datePanel}
             />
           )}
         </div>
+        </fieldset>
       </div>
 
       <style jsx global>{`

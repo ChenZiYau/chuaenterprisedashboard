@@ -4,8 +4,9 @@ import { vaultFetch } from "@/lib/vaultServer";
 
 /** What the Share page needs to know about each property's vault gallery. */
 interface VaultSummary {
-  count: number;
+  count: number | null;
   coverUrl: string | null;
+  unavailable?: boolean;
 }
 
 // Aggregates the Vault's per-property image indexes server-side so the Share
@@ -23,11 +24,12 @@ export async function GET() {
           const res = await vaultFetch(
             `/api/images/${encodeURIComponent(p.id)}`,
           );
-          if (!res.ok) return [p.id, { count: 0, coverUrl: null }];
+          if (!res.ok) throw new Error("Gallery unavailable");
           const index = (await res.json()) as {
             images?: { imageUrl?: string }[];
           };
-          const images = Array.isArray(index.images) ? index.images : [];
+          if (!Array.isArray(index.images)) throw new Error("Invalid gallery response");
+          const images = index.images;
           return [
             p.id,
             {
@@ -36,7 +38,7 @@ export async function GET() {
             },
           ];
         } catch {
-          return [p.id, { count: 0, coverUrl: null }];
+          return [p.id, { count: null, coverUrl: null, unavailable: true }];
         }
       }),
     );

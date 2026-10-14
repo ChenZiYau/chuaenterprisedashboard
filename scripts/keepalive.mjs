@@ -4,8 +4,9 @@
  *
  * Supabase's free tier pauses a project after ~7 days with no activity. This
  * script makes a tiny request against the database so the project stays awake.
- * Run it on a schedule (GitHub Actions, Vercel Cron, or Windows Task Scheduler)
- * at least once every few days.
+ * Scheduled by .github/workflows/keepalive.yml every three days.
+ * Connects directly with Supabase credentials; CRON_SECRET is only needed
+ * for the separate /api/keepalive HTTP endpoint. Do not add a second schedule.
  *
  * Env it reads (from process env or a local .env when run manually):
  *   SUPABASE_URL            (or NEXT_PUBLIC_SUPABASE_URL)
@@ -21,7 +22,7 @@ import { readFileSync } from "node:fs";
 try {
   for (const line of readFileSync(new URL("../.env", import.meta.url), "utf8").split("\n")) {
     const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
   }
 } catch {
   /* no .env file — rely on the environment (CI, etc.) */
@@ -40,13 +41,16 @@ const supabase = createClient(url, key, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const { count, error } = await supabase
-  .from("properties")
-  .select("*", { count: "exact", head: true });
-
-if (error) {
-  console.error("keepalive: query failed:", error.message);
-  process.exit(1);
+const signal = AbortSignal.timeout(10_000);
+try {
+  const { error } = await supabase
+    .from("properties")
+    .select("id", { head: true })
+    .limit(1)
+    .abortSignal(signal);
+  if (error) throw error;
+  console.log(JSON.stringify({ ok: true, at: new Date().toISOString() }));
+} catch {
+  console.error(JSON.stringify({ ok: false, at: new Date().toISOString(), error: signal.aborted ? "Database check timed out" : "Database check failed" }));
+  process.exitCode = 1;
 }
-
-console.log(`keepalive: ok @ ${new Date().toISOString()} (properties count=${count ?? "n/a"})`);

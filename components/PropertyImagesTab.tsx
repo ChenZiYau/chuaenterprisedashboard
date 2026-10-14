@@ -153,8 +153,11 @@ function PropertyImagesEditor({ property }: { property: Property }) {
     form.append("kind", kind);
     const res = await fetch("/api/vault/upload", { method: "POST", body: form });
     const data = await res.json();
-    if (!res.ok) throw new Error(data?.error ?? "Upload failed.");
-    return data.url as string;
+    if (!res.ok || res.redirected) throw new Error(data?.error ?? "Upload failed.");
+    if (typeof data?.url !== "string" || !/^https?:\/\//.test(data.url)) {
+      throw new Error("Upload did not return a valid image URL. Photos have not been saved.");
+    }
+    return data.url;
   }
 
   async function saveAll() {
@@ -193,7 +196,7 @@ function PropertyImagesEditor({ property }: { property: Property }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ images: entries }),
       });
-      if (!res.ok) {
+      if (!res.ok || res.redirected) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.error ?? "Could not save.");
       }

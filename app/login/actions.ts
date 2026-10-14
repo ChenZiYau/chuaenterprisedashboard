@@ -59,7 +59,9 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     maxAge,
   });
 
-  redirect(from && from.startsWith("/") ? from : "/properties");
+  // Reject browser-normalized external redirects as well as absolute URLs.
+  const localPath = from.startsWith("/") && !from.startsWith("//") && !/[\\\u0000-\u0020\u007f]/.test(from);
+  redirect(localPath ? from : "/properties");
 }
 
 /** Clear the session and return to the login screen. */

@@ -14,8 +14,9 @@ import { PROPERTY_TYPE_LABEL, type Property } from "@/lib/data";
 
 /** Per-property gallery stats reported by the Image Vault. */
 interface VaultSummary {
-  count: number;
+  count: number | null;
   coverUrl: string | null;
+  unavailable?: boolean;
 }
 
 const VAULT_URL =
@@ -43,7 +44,7 @@ function ShareCard({
   onOpen: (modal: CardModal) => void;
 }) {
   const toast = useToast();
-  const count = summary?.count ?? 0;
+  const count = summary?.count ?? null;
 
   async function copyLink() {
     if (await copyText(galleryLink(property, slug))) {
@@ -97,11 +98,11 @@ function ShareCard({
           <span
             className="px-2 py-0.5 rounded-md text-[11px] font-semibold tabular-nums"
             style={{
-              background: count > 0 ? "var(--accent-soft, var(--surface-muted))" : "var(--surface-muted)",
-              color: count > 0 ? "var(--accent)" : "var(--text-muted)",
+              background: count != null && count > 0 ? "var(--accent-soft, var(--surface-muted))" : "var(--surface-muted)",
+              color: count != null && count > 0 ? "var(--accent)" : "var(--text-muted)",
             }}
           >
-            {count} {count === 1 ? "photo" : "photos"}
+            {count == null ? "Photo count unavailable" : `${count} ${count === 1 ? "photo" : "photos"}`}
           </span>
         </div>
 
@@ -143,6 +144,8 @@ export default function SharePage() {
   const router = useRouter();
   const [summaries, setSummaries] = useState<Record<string, VaultSummary>>({});
   const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const propertyIds = liveProperties.map((p) => p.id).sort().join(",");
 
   // Seeded from live Supabase data; local state lets slug edits and deletions
   // reflect instantly without a reload.
@@ -152,20 +155,25 @@ export default function SharePage() {
 
   useEffect(() => {
     let active = true;
+    setLoadError(false);
     (async () => {
       try {
         const res = await fetch("/api/vault/summary");
         if (!res.ok) throw new Error();
         const data = await res.json();
-        if (active) setSummaries(data.summaries ?? {});
+        if (!data.summaries || typeof data.summaries !== "object") throw new Error();
+        if (active) {
+          setSummaries(data.summaries);
+          setLoadError(Object.values(data.summaries as Record<string, VaultSummary>).some((summary) => summary.unavailable));
+        }
       } catch {
-        if (active) setLoadError(true);
+        if (active) { setSummaries({}); setLoadError(true); }
       }
     })();
     return () => {
       active = false;
     };
-  }, []);
+  }, [propertyIds, loadAttempt]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -227,6 +235,7 @@ export default function SharePage() {
         >
           Could not reach the Image Vault — photo counts may be missing. Links
           still work.
+          <button type="button" className="ui-btn ml-3" onClick={() => setLoadAttempt((n) => n + 1)}>Retry photo counts</button>
         </div>
       )}
 
@@ -256,7 +265,7 @@ export default function SharePage() {
           open
           title={`Manage Images — ${modal.property.shortName || modal.property.name}`}
           src={`/embed/images/${encodeURIComponent(modal.property.id)}`}
-          onClose={() => setModal(null)}
+          onClose={() => { setModal(null); setLoadAttempt((n) => n + 1); }}
         />
       )}
 
