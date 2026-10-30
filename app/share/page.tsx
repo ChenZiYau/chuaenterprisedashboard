@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { deleteResource } from "@/lib/clientApi";
 import { PropertyCover } from "@/components/PropertyCover";
 import { ActionMenu } from "@/components/ui";
+import { galleryFolders, galleryLink } from "@/lib/galleryFolders";
 import { copyText } from "@/lib/clipboard";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { IframeModal } from "@/components/IframeModal";
@@ -19,36 +20,30 @@ interface VaultSummary {
   unavailable?: boolean;
 }
 
-const VAULT_URL =
-  (process.env.NEXT_PUBLIC_VAULT_URL ?? "").replace(/\/+$/, "") ||
-  "https://chuaimage.vercel.app";
-
 type CardModal =
   | { kind: "images"; property: Property }
   | { kind: "delete"; property: Property };
 
-/** Public customer-facing gallery link (custom slug wins over the id). */
-function galleryLink(property: Property, slug?: string): string {
-  return `${VAULT_URL}/p/${encodeURIComponent(slug ?? property.id)}`;
-}
-
 function ShareCard({
   property,
-  summary,
-  slug,
+  summaries,
   onOpen,
 }: {
   property: Property;
-  summary?: VaultSummary;
-  slug?: string;
+  summaries: Record<string, VaultSummary>;
   onOpen: (modal: CardModal) => void;
 }) {
   const toast = useToast();
+  const { units } = useData();
+  const folders = galleryFolders(property, units);
+  const [selected, setSelected] = useState(property.id);
+  const folder = folders.find((item) => item.id === selected) ?? property;
+  const summary = summaries[folder.id];
   const count = summary?.count ?? null;
 
   async function copyLink() {
-    if (await copyText(galleryLink(property, slug))) {
-      toast.created(`Gallery link for ${property.shortName || property.name} copied`);
+    if (await copyText(galleryLink(folder))) {
+      toast.created(`Gallery link for ${folder.name} copied`);
     } else {
       toast.info("Could not copy the link.");
     }
@@ -84,6 +79,13 @@ function ShareCard({
             ]}
           />
         </div>
+
+        {folders.length > 1 && <label className="flex min-w-0 flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+          Photo folder to share
+          <select className="ui-select w-full min-w-0" value={folder.id} onChange={(event) => setSelected(event.target.value)}>
+            {folders.map((item, index) => <option key={item.id} value={item.id}>{index === 0 ? "Property photos" : item.shortName}</option>)}
+          </select>
+        </label>}
 
         {/* Meta: type badge + photo count */}
         <div className="flex items-center gap-2 mt-auto">
@@ -121,7 +123,7 @@ function ShareCard({
           {/* Opens the live vault gallery in a new tab — iframing it is
               blocked by the vault's frame-ancestors policy. */}
           <a
-            href={galleryLink(property, slug)}
+            href={galleryLink(folder)}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs font-medium transition hover:underline"
@@ -137,7 +139,7 @@ function ShareCard({
 }
 
 export default function SharePage() {
-  const { properties: liveProperties, hideProperty, unhideProperty } = useData();
+  const { properties: liveProperties, units, hideProperty, unhideProperty } = useData();
   const toast = useToast();
 
   const [search, setSearch] = useState("");
@@ -145,7 +147,7 @@ export default function SharePage() {
   const [summaries, setSummaries] = useState<Record<string, VaultSummary>>({});
   const [loadError, setLoadError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const propertyIds = liveProperties.map((p) => p.id).sort().join(",");
+  const propertyIds = liveProperties.flatMap((p) => galleryFolders(p, units)).map((p) => p.id).sort().join(",");
 
   // Seeded from live Supabase data; local state lets slug edits and deletions
   // reflect instantly without a reload.
@@ -251,8 +253,7 @@ export default function SharePage() {
             <ShareCard
               key={p.id}
               property={p}
-              summary={summaries[p.id]}
-              slug={p.slug}
+              summaries={summaries}
               onOpen={setModal}
             />
           ))}

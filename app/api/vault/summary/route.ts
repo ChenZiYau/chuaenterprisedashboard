@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getProperties } from "@/lib/db";
+import { getProperties, getUnits } from "@/lib/db";
+import { galleryFolders } from "@/lib/galleryFolders";
 import { vaultFetch } from "@/lib/vaultServer";
 
 /** What the Share page needs to know about each property's vault gallery. */
@@ -16,7 +17,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const properties = await getProperties();
+    const [records, units] = await Promise.all([getProperties(), getUnits()]);
+    const properties = records.flatMap((property) => galleryFolders(property, units));
 
     const entries = await Promise.all(
       properties.map(async (p): Promise<[string, VaultSummary]> => {

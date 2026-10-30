@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AccountsExportButton } from "@/components/AccountsExportButton";
 import { useRouter } from "next/navigation";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { withScheduledRent } from "@/lib/tenantRent";
 import { deleteResource } from "@/lib/clientApi";
 import {
   MONTHS,
@@ -31,7 +33,7 @@ function entryTotal(e: RevenueEntry) {
 }
 
 export function PropertyRevenueTab({ property }: { property: Property }) {
-  const { revenueEntries, getUnit, getUnitsForProperty } = useData();
+  const { revenueEntries, tenants, units, getUnit, getUnitsForProperty } = useData();
   const toast = useToast();
   const router = useRouter();
   const [entries, setEntries] = useState(revenueEntries);
@@ -60,7 +62,7 @@ export function PropertyRevenueTab({ property }: { property: Property }) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return entries
+    return withScheduledRent(entries, tenants, units, fromDate, toDate)
       .filter((e) => e.propertyId === property.id)
       .filter((e) => (!fromDate || e.paymentDate >= fromDate) && (!toDate || e.paymentDate <= toDate))
       .filter((e) => filterUnit === "all" || e.unitId === filterUnit)
@@ -74,7 +76,7 @@ export function PropertyRevenueTab({ property }: { property: Property }) {
         );
       })
       .sort((a, b) => (a.year !== b.year ? b.year - a.year : b.month - a.month));
-  }, [entries, property.id, fromDate, toDate, search, filterUnit, filterStatus, getUnit]);
+  }, [tenants, units, entries, property.id, fromDate, toDate, search, filterUnit, filterStatus, getUnit]);
 
   const totalRevenue = filtered.reduce((s, e) => s + entryTotal(e), 0);
 
@@ -127,6 +129,8 @@ export function PropertyRevenueTab({ property }: { property: Property }) {
         </div>
       </div>
 
+      <AccountsExportButton fromDate={fromDate} toDate={toDate} propertyId={property.id} displayed={filtered} source="revenue" filters={`Room: ${filterUnit}; Status: ${filterStatus}; Search: ${search}`} />
+
       {/* Table */}
       {filtered.length === 0 ? (
         <div className="ui-card p-12 text-center">
@@ -162,7 +166,7 @@ export function PropertyRevenueTab({ property }: { property: Property }) {
                     <td className="px-4 py-3 text-center tabular-nums" style={{ color: "var(--text-secondary)" }}>{entry.electricity != null ? fmtMYR(entry.electricity) : "-"}</td>
                     <td className="px-4 py-3 text-center tabular-nums" style={{ color: "var(--text-secondary)" }}>{entry.other != null && entry.other > 0 ? fmtMYR(entry.other) : "-"}</td>
                     <td className="px-4 py-3 text-center font-semibold tabular-nums" style={{ color: "var(--success)" }}>{fmtMYR(entryTotal(entry))}</td>
-                    <td className="px-4 py-3 text-center" style={{ color: "var(--text-muted)" }}>{PAYMENT_METHOD_LABEL[entry.method]}</td>
+                    <td className="px-4 py-3 text-center" style={{ color: "var(--text-muted)" }}>{entry.scheduled ? "—" : PAYMENT_METHOD_LABEL[entry.method]}</td>
                     <td className="px-4 py-3 text-center font-semibold" style={{ color: STATUS_COLOR[entry.status] }}>{PAYMENT_STATUS_LABEL[entry.status]}</td>
                     <td className="px-4 py-3 text-center font-semibold" style={{ color: entry.invoiceGenerated ? "var(--success)" : "var(--warning)" }}>{entry.invoiceGenerated ? "Generated" : "Pending"}</td>
                     <td className="px-3 py-3 sticky right-0 z-[1]" style={{ background: "var(--surface)", borderLeft: "1px solid var(--border-soft)" }}>
@@ -171,7 +175,7 @@ export function PropertyRevenueTab({ property }: { property: Property }) {
                           label="Revenue actions"
                           items={[
                             { label: "Edit", onClick: () => { setEditingEntry(entry); setEntryOpen(true); } },
-                            { label: "Delete", danger: true, onClick: () => deleteEntry(entry.id) },
+                            ...(!entry.scheduled ? [{ label: "Delete", danger: true, onClick: () => deleteEntry(entry.id) }] : []),
                           ]}
                         />
                       </div>

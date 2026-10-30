@@ -25,7 +25,7 @@ test('Add Tenant saves unassigned and selects Whole Unit only for whole-unit pro
   const field = (label) => find(tree, (n) => n.props?.label === label);
   const select = (label) => find(field(label), (n) => n.type === 'select');
   render();
-  for (const [label, value] of [['Full name', 'Alice'], ['IC / Passport No.', 'ABC'], ['Phone', '0123456789'], ['Email (optional)', 'alice@example.com']]) {
+  for (const [label, value] of [['Base rent (RM/month)', '800'], ['Deposit (RM)', '1600'], ['Full name', 'Alice'], ['IC / Passport No.', 'ABC'], ['Phone', '0123456789'], ['Email (optional)', 'alice@example.com']]) {
     find(field(label), (n) => n.type === 'input').props.onChange({ target: { value } });
   }
   render();

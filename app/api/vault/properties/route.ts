@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProperties } from "@/lib/db";
+import { getProperties, getUnits } from "@/lib/db";
+import { galleryFolders } from "@/lib/galleryFolders";
 
 // Consumed by the Image Vault companion app (chua-image-vault), which has no
 // property database of its own. Sits outside the session-cookie gate (see
@@ -21,7 +22,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const properties = (await getProperties()).map((p) => ({
+    const [records, units] = await Promise.all([getProperties(), getUnits()]);
+    const properties = records.flatMap((property) => galleryFolders(property, units)).map((p) => ({
       id: p.id,
       slug: p.slug ?? null,
       name: p.name,

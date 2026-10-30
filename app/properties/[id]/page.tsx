@@ -174,7 +174,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className="px-4 py-3 text-sm font-medium transition border-l first:border-l-0"
+              className="min-w-0 px-1 sm:px-4 py-3 text-xs sm:text-sm font-medium transition border-l first:border-l-0"
               style={{
                 borderColor: "var(--border-soft)",
                 background: active ? "var(--surface-muted)" : "var(--surface)",

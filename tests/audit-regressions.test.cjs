@@ -52,7 +52,7 @@ test('login only redirects to local paths after successful authentication', asyn
 
 test('gallery summaries distinguish empty, populated, failed and malformed responses', async () => {
   const { GET } = loadTs('app/api/vault/summary/route.ts', {
-    '@/lib/db': { getProperties: async () => ['empty', 'full', 'failed', 'malformed'].map((id) => ({ id })) },
+    '@/lib/db': { getProperties: async () => ['empty', 'full', 'failed', 'malformed'].map((id) => ({ id })), getUnits: async () => [] },
     '@/lib/vaultServer': { vaultFetch: async (path) => {
       if (path.endsWith('failed')) return Response.json({ error: 'offline' }, { status: 502 });
       if (path.endsWith('malformed')) return Response.json({});
@@ -137,11 +137,11 @@ test('failed gallery upload response cannot replace the saved gallery', async (t
     if (init?.method === 'PUT') { writes++; return Response.json({ ok: true }); }
     return Response.json({ images: [] });
   });
-  const { PropertyImagesTab } = loadTs('components/PropertyImagesTab.tsx', {
+  const { PropertyImagesTab, PropertyImagesEditor } = loadTs('components/PropertyImagesTab.tsx', {
     react: host.react, '@/components/VaultCropModal': { VaultCropModal() {} },
     '@/components/Toast': { useToast: () => ({ info: (s) => messages.push(s), created: (s) => messages.push(s) }) },
   });
-  const editor = PropertyImagesTab({ property: { id: 'p1' } });
+  const editor = { type: PropertyImagesEditor, props: { property: { id: 'p1' } } };
   const render = () => host.render(() => editor.type(editor.props));
   render(); await new Promise(setImmediate); let tree = render();
   find(tree, (n) => n.type?.name === 'ImageCard').props.onSelectFile(new Blob(['image']));

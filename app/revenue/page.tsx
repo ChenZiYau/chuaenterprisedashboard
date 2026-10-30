@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AccountsExportButton } from "@/components/AccountsExportButton";
 import { useRouter } from "next/navigation";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
 import { useToast } from "@/components/Toast";
 import { useData } from "@/lib/DataContext";
+import { withScheduledRent } from "@/lib/tenantRent";
 import { deleteResource } from "@/lib/clientApi";
 import {
   MONTHS,
@@ -30,7 +32,7 @@ function entryTotal(e: RevenueEntry) {
 }
 
 export default function RevenuePage() {
-  const { properties, units, revenueEntries, getUnit, getUnitsForProperty } = useData();
+  const { properties, units, tenants, revenueEntries, getUnit, getUnitsForProperty } = useData();
   const toast = useToast();
   const router = useRouter();
   const [entries, setEntries] = useState(revenueEntries);
@@ -46,7 +48,7 @@ export default function RevenuePage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return entries
+    return withScheduledRent(entries, tenants, units, fromDate, toDate)
       .filter((e) => (!fromDate || e.paymentDate >= fromDate) && (!toDate || e.paymentDate <= toDate))
       .filter((e) => filterProp === "all" || e.propertyId === filterProp)
       .filter((e) => filterStatus === "all" || e.status === filterStatus)
@@ -61,7 +63,7 @@ export default function RevenuePage() {
         );
       })
       .sort((a, b) => (a.year !== b.year ? b.year - a.year : b.month - a.month));
-  }, [entries, fromDate, toDate, search, filterProp, filterStatus, properties, getUnit]);
+  }, [tenants, units, entries, fromDate, toDate, search, filterProp, filterStatus, properties, getUnit]);
 
   const totalRevenue = filtered.reduce((s, e) => s + entryTotal(e), 0);
 
@@ -155,6 +157,8 @@ export default function RevenuePage() {
         </div>
       </div>
 
+      <AccountsExportButton fromDate={fromDate} toDate={toDate} propertyId={filterProp} displayed={filtered} source="revenue" filters={`Status: ${filterStatus}; Search: ${search}`} />
+
       {/* Table */}
       {filtered.length === 0 ? (
         <div className="ui-card p-12 text-center">
@@ -224,7 +228,7 @@ export default function RevenuePage() {
                       {fmtMYR(entryTotal(entry))}
                     </td>
                     <td className="px-4 py-3 text-center" style={{ color: "var(--text-muted)" }}>
-                      {PAYMENT_METHOD_LABEL[entry.method]}
+                      {entry.scheduled ? "—" : PAYMENT_METHOD_LABEL[entry.method]}
                     </td>
                     <td className="px-4 py-3 text-center font-semibold" style={{ color: STATUS_COLOR[entry.status] }}>
                       {PAYMENT_STATUS_LABEL[entry.status]}
@@ -244,7 +248,7 @@ export default function RevenuePage() {
                           label="Revenue actions"
                           items={[
                             { label: "Edit", onClick: () => { setEditingEntry(entry); setEntryOpen(true); } },
-                            {
+                            ...(!entry.scheduled ? [{
                               label: "Delete",
                               danger: true,
                               onClick: async () => {
@@ -257,7 +261,7 @@ export default function RevenuePage() {
                                   toast.info(res.error);
                                 }
                               },
-                            },
+                            }] : []),
                           ]}
                         />
                       </div>

@@ -68,6 +68,8 @@ export function mapTenant(r: Record<string, unknown>): Tenant {
     unitId: (r.unit_id as string) ?? "",
     leaseStart: (r.lease_start as string) ?? "",
     leaseEnd: (r.lease_end as string) ?? "",
+    baseRent: num(r.base_rent),
+    depositAmount: num(r.deposit_amount),
   };
 }
 

@@ -73,6 +73,8 @@ export function AddTenantModal({
   const [unitId, setUnitId] = useState("");
   const [leaseStart, setLeaseStart] = useState(today);
   const [leaseEnd, setLeaseEnd] = useState(nextYear);
+  const [baseRent, setBaseRent] = useState("");
+  const [depositAmount, setDepositAmount] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -99,6 +101,8 @@ export function AddTenantModal({
     setUnitId(editTenant?.unitId ?? "");
     setLeaseStart(editTenant?.leaseStart ?? today);
     setLeaseEnd(editTenant?.leaseEnd ?? nextYear);
+    setBaseRent(editTenant?.baseRent != null ? String(editTenant.baseRent) : "");
+    setDepositAmount(editTenant?.depositAmount != null ? String(editTenant.depositAmount) : "");
     setErrors({});
     setSaving(false);
   }, [open, editTenant, units, today, nextYear]);
@@ -146,6 +150,13 @@ export function AddTenantModal({
     e.preventDefault();
     if (savingRef.current) return;
     const errs: Record<string, string> = {};
+    for (const [key, value] of Object.entries({ baseRent, depositAmount })) {
+      if (value.trim() && (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 9999999999.99 || Math.abs(Number(value) * 100 - Math.round(Number(value) * 100)) > 0.0001)) {
+        errs[key] = "Enter a non-negative amount with at most two decimal places.";
+      }
+    }
+    if (!editTenant && !baseRent.trim()) errs.baseRent = "Enter the monthly base rent (0 if rent-free).";
+    if (!editTenant && !depositAmount.trim()) errs.depositAmount = "Enter the one-time deposit (0 if none).";
     if (!name.trim()) errs.name = "Enter the tenant's name.";
     if (!icNumber.trim()) errs.icNumber = "Enter the IC / passport number.";
     if (!phone.trim()) errs.phone = "Enter a phone number.";
@@ -169,6 +180,8 @@ export function AddTenantModal({
         unitId,
         leaseStart,
         leaseEnd,
+        baseRent: baseRent.trim() ? Number(baseRent) : null,
+        depositAmount: depositAmount.trim() ? Number(depositAmount) : null,
       });
       if (result !== false) onClose();
     } catch {
@@ -318,6 +331,18 @@ export function AddTenantModal({
           </div>
 
           {/* Lease */}
+          <div className="flex flex-col gap-3">
+            <p className="text-[10px] uppercase tracking-[0.16em]" style={{ color: "var(--text-faint)" }}>Rent &amp; deposit</p>
+            <Field label="Base rent (RM/month)">
+              <input aria-label="Monthly base rent" type="number" min="0" max="9999999999.99" step="0.01" inputMode="decimal" className={fieldCls} value={baseRent} onChange={(e) => { setBaseRent(e.target.value); clearError("baseRent"); }} placeholder="e.g. 800.00" />
+              {errors.baseRent && <p role="alert" className="text-xs mt-1" style={{ color: "var(--danger)" }}>{errors.baseRent}</p>}
+            </Field>
+            <Field label="Deposit (RM)">
+              <input aria-label="One-time deposit" type="number" min="0" max="9999999999.99" step="0.01" inputMode="decimal" className={fieldCls} value={depositAmount} onChange={(e) => { setDepositAmount(e.target.value); clearError("depositAmount"); }} placeholder="e.g. 1600.00" />
+              {errors.depositAmount && <p role="alert" className="text-xs mt-1" style={{ color: "var(--danger)" }}>{errors.depositAmount}</p>}
+            </Field>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>Enter once. Base rent appears each month during the lease after a room is assigned. The deposit is recorded once and does not repeat monthly.</p>
+          </div>
           <div className="flex flex-col gap-3">
             <p className="text-[10px] uppercase tracking-[0.16em]" style={{ color: "var(--text-faint)" }}>Lease</p>
             <Field label="Lease start">

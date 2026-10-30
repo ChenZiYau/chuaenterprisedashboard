@@ -67,6 +67,21 @@ function fixture(initial = {}, fail = () => false) {
 const request = (body) => ({ json: async () => body });
 const params = (id = 'tenant-1') => ({ params: Promise.resolve({ id }) });
 
+test('tenant rent and deposit persist on create and edit, including explicit zero', async () => {
+  const db = fixture();
+  const response = await db.POST(request({ ...input, baseRent: 800.50, depositAmount: 1601 }));
+  const saved = (await response.json()).tenant;
+  assert.equal(saved.baseRent, 800.50);
+  assert.equal(saved.depositAmount, 1601);
+  const updated = await db.PUT(request({ ...input, baseRent: 900, depositAmount: 0 }), params(saved.id));
+  assert.equal((await updated.json()).tenant.depositAmount, 0);
+  assert.equal(db.state.tenants[0].base_rent, 900);
+  for (const value of [-1, Infinity, '800', 0.001]) {
+    assert.equal((await db.POST(request({ ...input, baseRent: value }))).status, 400);
+    assert.equal((await db.PUT(request({ ...input, depositAmount: value }), params(saved.id))).status, 400);
+  }
+});
+
 test('tenant payload normalizes required text and allows equal lease dates', () => {
   const { parseTenantInput } = loadTs('lib/tenantInput.ts');
   const result = parseTenantInput({ ...input, name: ' Alice ', phone: ' 123 ', email: ' ', leaseEnd: input.leaseStart });

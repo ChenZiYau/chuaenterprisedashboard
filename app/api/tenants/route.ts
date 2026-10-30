@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseServer";
 import { mapTenant } from "@/lib/db";
 import { parseTenantInput } from "@/lib/tenantInput";
 import { syncTenantOccupancy } from "@/lib/tenantOccupancy";
+import { tenantSaveError } from "@/lib/tenantSaveError";
 
 // Creates a new tenant and updates the denormalised units.tenant_name column.
 // Session-cookie-gated by proxy.ts.
@@ -43,9 +44,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ tenant: mapTenant(data), warning });
   } catch (err) {
     console.error("[POST /api/tenants]", err);
+    const failure = tenantSaveError(err, "Could not create the tenant.");
     return NextResponse.json(
-      { error: "Could not create the tenant." },
-      { status: 500 },
+      { error: failure.error },
+      { status: failure.status },
     );
   }
 }

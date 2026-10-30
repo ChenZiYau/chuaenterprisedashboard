@@ -1,37 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useToast } from "@/components/Toast";
+import { useState } from "react";
 import { useData } from "@/lib/DataContext";
-import { saveResource } from "@/lib/clientApi";
-import { fmtMYR, type Property, type Unit } from "@/lib/data";
-
-/** The deposit held for a room: an explicit amount when set, otherwise the
- *  computed rental rate × deposit months. */
-function effectiveDeposit(unit: Unit): number {
-  if (unit.depositAmount != null) return unit.depositAmount;
-  return unit.rentalRate * (unit.depositMonths ?? 0);
-}
+import { fmtMYR } from "@/lib/data";
 
 export default function DepositsPage() {
-  const { properties, getUnitsForProperty } = useData();
+  const { properties, tenants, units } = useData();
   const [selected, setSelected] = useState<string>("all");
+  const tenantDeposits = tenants.filter((t) => t.depositAmount != null && (selected === "all" || units.some((u) => u.id === t.unitId && u.propertyId === selected)));
 
-  const withUnits = useMemo(
-    () =>
-      properties
-        .map((p) => ({ property: p, units: getUnitsForProperty(p.id) }))
-        .filter((s) => s.units.length > 0),
-    [properties, getUnitsForProperty]
-  );
-
-  const sections = selected === "all" ? withUnits : withUnits.filter((s) => s.property.id === selected);
-
-  const grandTotal = sections.reduce(
-    (sum, s) => sum + s.units.reduce((u, unit) => u + effectiveDeposit(unit), 0),
-    0
-  );
+  const grandTotal = tenantDeposits.reduce((sum, tenant) => sum + (tenant.depositAmount ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-8">
@@ -39,7 +17,7 @@ export default function DepositsPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
           <PropertyTab label="All Properties" active={selected === "all"} onClick={() => setSelected("all")} />
-          {withUnits.map(({ property }) => (
+          {properties.map((property) => (
             <PropertyTab
               key={property.id}
               label={property.shortName}
@@ -58,15 +36,24 @@ export default function DepositsPage() {
         </div>
       </div>
 
-      {/* Per-property sections */}
-      {sections.length === 0 ? (
+      <p className="text-sm" style={{ color: "var(--text-muted)" }}>Deposits recorded for each tenant. Enter deposits when adding a tenant, or update them in Tenants.</p>
+      {tenantDeposits.length > 0 && <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        {tenantDeposits.map((tenant) => {
+          const unit = units.find((u) => u.id === tenant.unitId);
+          const property = properties.find((p) => p.id === unit?.propertyId);
+          return <div key={tenant.id} className="ui-card p-4 flex flex-col gap-2">
+            <p className="font-semibold">{tenant.name}</p>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>{unit ? `${property?.name ?? ""} · ${unit.name}` : "Unassigned"}</p>
+            <p className="text-sm">One-time deposit: <strong>{fmtMYR(tenant.depositAmount ?? 0)}</strong></p>
+            <a href="/tenants" className="text-xs underline">Edit in Tenants</a>
+          </div>;
+        })}
+      </div>}
+      {tenantDeposits.length === 0 && (
         <div className="ui-card p-12 text-center" style={{ color: "var(--text-muted)" }}>
-          <p className="text-sm">No rooms found for this property yet.</p>
+          <p className="text-sm">No tenant deposits recorded{selected === "all" ? " yet" : " for this property"}.</p>
+          <a href="/tenants" className="text-sm underline mt-2 inline-block">Go to Tenants to record a deposit</a>
         </div>
-      ) : (
-        sections.map(({ property, units }, i) => (
-          <PropertyDepositSection key={property.id} property={property} units={units} divider={i > 0} />
-        ))
       )}
     </div>
   );
@@ -96,242 +83,5 @@ function PropertyTab({
     >
       {label}
     </button>
-  );
-}
-
-function PropertyDepositSection({
-  property,
-  units,
-  divider,
-}: {
-  property: Property;
-  units: Unit[];
-  divider?: boolean;
-}) {
-  const total = units.reduce((sum, u) => sum + effectiveDeposit(u), 0);
-  const isWhole = property.rentalModel === "whole_unit";
-
-  return (
-    <section
-      className={"flex flex-col gap-3" + (divider ? " border-t pt-8" : "")}
-      style={divider ? { borderColor: "var(--border-soft)" } : undefined}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-lg font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
-            {property.name}
-          </p>
-          <p className="text-xs mt-0.5" style={{ color: "var(--text-faint)" }}>
-            {isWhole ? "Whole unit" : "Room rental"} · {property.city} · {units.length}{" "}
-            {isWhole ? "unit" : "rooms"}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--text-faint)" }}>
-            Total deposit ({units.length} {isWhole ? "unit" : "rooms"})
-          </p>
-          <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
-            {fmtMYR(total)}
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {units.map((unit) => (
-          <DepositRoomCard key={unit.id} unit={unit} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-const fieldClass =
-  "w-28 px-2.5 py-1.5 text-sm text-right rounded-md border outline-none transition tabular-nums";
-const fieldStyle: React.CSSProperties = {
-  borderColor: "var(--border-soft)",
-  background: "var(--surface)",
-  color: "var(--text-primary)",
-};
-
-function DepositRoomCard({ unit }: { unit: Unit }) {
-  const { updateUnit } = useData();
-  const router = useRouter();
-  const toast = useToast();
-  const rate = unit.rentalRate;
-  const depositLabel = unit.tenantName ?? "Deposit";
-
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [monthsStr, setMonthsStr] = useState(unit.depositMonths != null ? String(unit.depositMonths) : "");
-  const [amountStr, setAmountStr] = useState(
-    unit.depositAmount != null ? String(unit.depositAmount) : ""
-  );
-  useEffect(() => {
-    if (editing) return;
-    setMonthsStr(unit.depositMonths != null ? String(unit.depositMonths) : "");
-    setAmountStr(unit.depositAmount != null ? String(unit.depositAmount) : "");
-  }, [unit.depositMonths, unit.depositAmount, editing]);
-
-  const months = parseFloat(monthsStr);
-  const computed = Number.isFinite(months) ? rate * months : 0;
-
-  // Changing months auto-fills the amount with rent × months; the amount can
-  // still be overridden afterwards.
-  function handleMonthsChange(v: string) {
-    setMonthsStr(v);
-    const m = parseFloat(v);
-    setAmountStr(Number.isFinite(m) && m >= 0 ? String(rate * m) : "");
-  }
-
-  async function saveDeposit() {
-    if (saving) return;
-    const depositMonths = monthsStr.trim() ? Number(monthsStr) : null;
-    const depositAmount = amountStr.trim() ? Number(amountStr) : null;
-    if ([depositMonths, depositAmount].some((value) => value != null && (!Number.isFinite(value) || value < 0))) {
-      setError("Enter a valid, non-negative deposit amount and number of months.");
-      return;
-    }
-    setError("");
-    setSaving(true);
-    const res = await saveResource<{ unit: Unit }>(
-      `/api/units/${encodeURIComponent(unit.id)}`,
-      "PUT",
-      { depositMonths, depositAmount },
-    );
-    setSaving(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
-    updateUnit(res.data.unit);
-    setEditing(false);
-    router.refresh();
-    toast.updated(`Deposit for ${unit.name} updated`);
-  }
-
-  return (
-    <div
-      className="rounded-xl border p-4 flex flex-col gap-3"
-      style={{ borderColor: "var(--border-soft)", background: "var(--surface-muted)" }}
-    >
-      {/* Header: centered room name with an edit affordance on the right */}
-      <div className="relative flex items-center justify-center">
-        <span className="text-sm font-semibold truncate px-7" style={{ color: "var(--text-primary)" }}>
-          {unit.name}
-        </span>
-        {editing ? (
-          <div className="absolute right-0 flex items-center gap-1">
-            <button
-              type="button"
-              onClick={saveDeposit}
-              disabled={saving}
-              className="text-[11px] font-medium px-2 py-1 rounded-md transition"
-              style={{ background: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
-            >
-              {saving ? "Saving..." : "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMonthsStr(unit.depositMonths != null ? String(unit.depositMonths) : "");
-                setAmountStr(unit.depositAmount != null ? String(unit.depositAmount) : "");
-                setError("");
-                setEditing(false);
-              }}
-              disabled={saving}
-              className="text-[11px] font-medium px-2 py-1 rounded-md border transition"
-              style={{ borderColor: "var(--border-soft)", background: "var(--surface)", color: "var(--text-muted)" }}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => { setError(""); setEditing(true); }}
-            aria-label={`Edit deposit for ${unit.name}`}
-            className="absolute right-0 text-[11px] font-medium px-2 py-1 rounded-md border transition hover:bg-[var(--surface)]"
-            style={{ borderColor: "var(--border-soft)", background: "var(--surface)", color: "var(--text-primary)" }}
-          >
-            Edit
-          </button>
-        )}
-      </div>
-
-      {error && <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{error}</p>}
-
-      <DepositRow label="Rental per Month">
-        <span className="font-medium tabular-nums" style={{ color: "var(--text-secondary)" }}>
-          {fmtMYR(rate)}
-        </span>
-      </DepositRow>
-
-      <DepositRow label="Deposit (month rental)">
-        {editing ? (
-          <input
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="0.5"
-            className={fieldClass}
-            style={fieldStyle}
-            placeholder="0"
-            value={monthsStr}
-            disabled={saving}
-            onChange={(e) => handleMonthsChange(e.target.value)}
-          />
-        ) : (
-          <span className="font-medium tabular-nums" style={{ color: "var(--text-secondary)" }}>
-            {unit.depositMonths ?? "—"}
-          </span>
-        )}
-      </DepositRow>
-
-      <DepositRow label={depositLabel} muted={!unit.tenantName}>
-        {editing ? (
-          <input
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="0.01"
-            className={fieldClass}
-            style={fieldStyle}
-            placeholder={computed > 0 ? String(computed) : "0.00"}
-            value={amountStr}
-            disabled={saving}
-            onChange={(e) => setAmountStr(e.target.value)}
-          />
-        ) : (
-          <span className="text-base font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
-            {fmtMYR(effectiveDeposit(unit))}
-          </span>
-        )}
-      </DepositRow>
-    </div>
-  );
-}
-
-/** One label-left / value-right row, the building block of a deposit card. */
-function DepositRow({
-  label,
-  muted,
-  children,
-}: {
-  label: string;
-  muted?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 min-h-[34px]">
-      <span
-        className="text-sm truncate"
-        style={{ color: muted ? "var(--text-faint)" : "var(--text-muted)" }}
-        title={label}
-      >
-        {label}
-      </span>
-      {children}
-    </div>
   );
 }

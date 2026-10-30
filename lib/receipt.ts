@@ -15,6 +15,9 @@ export type ReceiptData = {
   date: string;
   receivedFrom: string;
   sum: number;
+  rental: number;
+  electricity: number;
+  other: number;
   paymentMethod: string;
   premise: string;
   fromDate: string;
@@ -84,6 +87,9 @@ export function buildReceiptData(
     date: fmtDots(entry.paymentDate) || fmtDots(todayIso()),
     receivedFrom: unit?.tenantName ?? tenantName ?? "-",
     sum: entryTotal(entry),
+    rental: entry.rental,
+    electricity: entry.electricity ?? 0,
+    other: entry.other ?? 0,
     paymentMethod: method,
     premise,
     fromDate: `1.${entry.month}.${entry.year}`,
@@ -114,6 +120,7 @@ export function renderReceiptHtml(d: ReceiptData, autoPrint: boolean) {
   .rm { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
   .muted { color: #444; font-size: 12px; margin-top: 4px; }
   .sig { height: 96px; }
+  .amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .disclaimer { font-style: italic; font-size: 11px; line-height: 1.55; }
   .toolbar { position: fixed; top: 14px; right: 14px; display: flex; gap: 8px; }
   .toolbar button { padding: 8px 14px; font-size: 12px; cursor: pointer;
@@ -163,6 +170,23 @@ export function renderReceiptHtml(d: ReceiptData, autoPrint: boolean) {
         <td colspan="2" class="v">${esc(d.being)}</td>
         <td class="k">bulan / month</td>
         <td class="v">${esc(d.monthLabel)}</td>
+      </tr>
+      <tr><td colspan="5" class="v">Charge breakdown</td></tr>
+      <tr>
+        <td colspan="3">Rent</td>
+        <td colspan="2" class="amount">RM ${esc(d.rental.toFixed(2))}</td>
+      </tr>
+      <tr>
+        <td colspan="3">Electricity</td>
+        <td colspan="2" class="amount">RM ${esc(d.electricity.toFixed(2))}</td>
+      </tr>
+      <tr>
+        <td colspan="3">Other charges</td>
+        <td colspan="2" class="amount">RM ${esc(d.other.toFixed(2))}</td>
+      </tr>
+      <tr>
+        <td colspan="3" class="v">Total</td>
+        <td colspan="2" class="amount v">RM ${esc(d.sum.toFixed(2))}</td>
       </tr>
       <tr>
         <td colspan="2" class="sig"></td>

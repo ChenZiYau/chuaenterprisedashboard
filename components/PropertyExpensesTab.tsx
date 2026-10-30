@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AccountsExportButton } from "@/components/AccountsExportButton";
 import { useRouter } from "next/navigation";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { QuickEntryModal } from "@/components/QuickEntryModal";
@@ -115,6 +116,8 @@ export function PropertyExpensesTab({ property }: { property: Property }) {
           <div className="ml-auto text-sm font-semibold" style={{ color: "var(--danger)" }}>Total: {fmtMYR(totalExpenses)}</div>
         </div>
       </div>
+
+      <AccountsExportButton fromDate={fromDate} toDate={toDate} propertyId={property.id} displayed={filtered} source="expenses" filters={`Room: ${filterUnit}; Category: ${filterCategory}; Search: ${search}`} />
 
       {/* Table */}
       {filtered.length === 0 ? (

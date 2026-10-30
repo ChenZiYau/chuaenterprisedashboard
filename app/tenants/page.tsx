@@ -100,6 +100,7 @@ function TenantCard({
 
   return (
     <div className="ui-card p-5 flex flex-col gap-4 transition hover:shadow-md">
+      <p className="text-xs" style={{ color: "var(--text-muted)" }}>Base rent: {tenant.baseRent != null ? `${fmtMYR(tenant.baseRent)}/month` : "Room default"} · Deposit: {tenant.depositAmount != null ? fmtMYR(tenant.depositAmount) : "Room default"}</p>
       {/* Identity — avatar tinted by property */}
       <div className="flex items-start gap-3">
         <div
@@ -143,7 +144,7 @@ function TenantCard({
           </p>
           <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--text-muted)" }}>
             {unit?.name ?? "—"}
-            {unit ? <span className="tabular-nums"> · {fmtMYR(unit.rentalRate)}/mo</span> : null}
+            {unit ? <span className="tabular-nums"> · {fmtMYR(tenant.baseRent ?? unit.rentalRate)}/mo</span> : null}
           </p>
         </div>
       </div>

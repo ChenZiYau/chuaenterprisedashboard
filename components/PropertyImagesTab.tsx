@@ -5,6 +5,7 @@ import { VaultCropModal } from "@/components/VaultCropModal";
 import { useToast } from "@/components/Toast";
 import type { Property } from "@/lib/data";
 import type { CropInfo, ImageEntry, PropertyIndex } from "@/lib/vaultTypes";
+import { PropertyImageFolders } from "@/components/PropertyImageFolders";
 
 /**
  * Gallery manager for a property — the admin-side replacement for the Image
@@ -68,10 +69,10 @@ function cardFromEntry(e: ImageEntry): Card {
 }
 
 export function PropertyImagesTab({ property }: { property: Property }) {
-  return <PropertyImagesEditor key={property.id} property={property} />;
+  return <PropertyImageFolders key={property.id} property={property} />;
 }
 
-function PropertyImagesEditor({ property }: { property: Property }) {
+export function PropertyImagesEditor({ property, onDirtyChange, onSavingChange }: { property: Property; onDirtyChange?: (dirty: boolean) => void; onSavingChange?: (saving: boolean) => void }) {
   const toast = useToast();
   const propertyId = property.id;
 
@@ -112,16 +113,19 @@ function PropertyImagesEditor({ property }: { property: Property }) {
 
   function patchCard(id: string, patch: Partial<Card>) {
     if (savePending.current) return;
+    onDirtyChange?.(true);
     setCards((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   }
 
   function addCard() {
     if (savePending.current) return;
+    onDirtyChange?.(true);
     setCards((cs) => [...cs, newCard()]);
   }
 
   function removeCard(id: string) {
     if (savePending.current) return;
+    onDirtyChange?.(true);
     setCards((cs) => (cs.length <= 1 ? [newCard()] : cs.filter((c) => c.id !== id)));
   }
 
@@ -164,6 +168,7 @@ function PropertyImagesEditor({ property }: { property: Property }) {
     if (!loaded.current || loading || loadError || savePending.current) return;
     savePending.current = true;
     setSaving(true);
+    onSavingChange?.(true);
     try {
       const entries: ImageEntry[] = [];
       for (const card of cards) {
@@ -203,12 +208,14 @@ function PropertyImagesEditor({ property }: { property: Property }) {
 
       // Reflect uploaded URLs back into local state (clears pending blobs).
       setCards(entries.length > 0 ? entries.map(cardFromEntry) : [newCard()]);
+      onDirtyChange?.(false);
       toast.created("Gallery saved");
     } catch (err) {
       toast.info(err instanceof Error ? err.message : "Save failed.");
     } finally {
       savePending.current = false;
       setSaving(false);
+      onSavingChange?.(false);
     }
   }
 
@@ -235,7 +242,7 @@ function PropertyImagesEditor({ property }: { property: Property }) {
   return (
     <div className="flex flex-col gap-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm" style={{ color: "var(--text-muted)" }}>
           {imageCount} {imageCount === 1 ? "photo" : "photos"} in the public gallery
         </p>
@@ -245,7 +252,7 @@ function PropertyImagesEditor({ property }: { property: Property }) {
       </div>
 
       {/* Cards */}
-      <fieldset className="space-y-4" disabled={saving}>
+      <fieldset className="min-w-0 space-y-4" disabled={saving}>
         {cards.map((card, i) => (
           <ImageCard
             key={card.id}
@@ -322,7 +329,7 @@ function ImageCard({ card, index, onChange, onSelectFile, onRemove, onCrop }: Im
         Image {index + 1}
       </p>
 
-      <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
+      <div className="grid min-w-0 gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
         {/* Upload / preview zone */}
         <div>
           <input
@@ -374,7 +381,7 @@ function ImageCard({ card, index, onChange, onSelectFile, onRemove, onCrop }: Im
         </div>
 
         {/* Fields */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <div>
             <label className="text-xs font-medium block mb-1" style={{ color: "var(--text-muted)" }} htmlFor={`title-${card.id}`}>
               Image title
@@ -385,7 +392,7 @@ function ImageCard({ card, index, onChange, onSelectFile, onRemove, onCrop }: Im
               value={card.title}
               onChange={(e) => onChange({ title: e.target.value })}
               placeholder="e.g. Master bedroom"
-              className="ui-field"
+              className="ui-field w-full min-w-0"
             />
           </div>
           <div>
@@ -398,7 +405,7 @@ function ImageCard({ card, index, onChange, onSelectFile, onRemove, onCrop }: Im
               onChange={(e) => onChange({ description: e.target.value })}
               placeholder="Notes about this photo…"
               rows={3}
-              className="ui-field resize-y"
+              className="ui-field w-full min-w-0 resize-y"
             />
           </div>
           {card.crop && (

@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseServer";
 import { mapTenant } from "@/lib/db";
 import { parseTenantInput } from "@/lib/tenantInput";
 import { syncTenantOccupancy } from "@/lib/tenantOccupancy";
+import { tenantSaveError } from "@/lib/tenantSaveError";
 
 // Updates or deletes a tenant. units.tenant_name is denormalised,
 // so it has to be synced explicitly. Session-cookie-gated by proxy.ts.
@@ -60,9 +61,10 @@ export async function PUT(
     return NextResponse.json({ tenant: mapTenant(data), warning });
   } catch (err) {
     console.error("[PUT /api/tenants/[id]]", err);
+    const failure = tenantSaveError(err, "Could not update the tenant.");
     return NextResponse.json(
-      { error: "Could not update the tenant." },
-      { status: 500 },
+      { error: failure.error },
+      { status: failure.status },
     );
   }
 }

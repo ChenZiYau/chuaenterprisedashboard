@@ -184,7 +184,7 @@ export function VaultCropModal({ src, initial, onCancel, onApply }: VaultCropMod
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="ui-card w-full max-w-3xl overflow-hidden" style={{ boxShadow: "0 24px 64px rgba(15,17,22,0.24)" }}>
+      <div className="ui-card w-full max-w-3xl max-h-[calc(100dvh-2rem)] overflow-y-auto" style={{ boxShadow: "0 24px 64px rgba(15,17,22,0.24)" }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--border-soft)" }}>
           <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Crop / Resize</h3>
@@ -264,7 +264,7 @@ export function VaultCropModal({ src, initial, onCancel, onApply }: VaultCropMod
                   min={1}
                   value={wInput}
                   onChange={(e) => applyWidth(e.target.value)}
-                  className="ui-field"
+                  className="ui-field w-full min-w-0"
                 />
               </div>
               <div>
@@ -278,7 +278,7 @@ export function VaultCropModal({ src, initial, onCancel, onApply }: VaultCropMod
                   min={1}
                   value={hInput}
                   onChange={(e) => applyHeight(e.target.value)}
-                  className="ui-field"
+                  className="ui-field w-full min-w-0"
                 />
               </div>
             </div>

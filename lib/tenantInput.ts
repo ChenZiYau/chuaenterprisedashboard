@@ -6,6 +6,8 @@ export type TenantRowInput = {
   unit_id: string | null;
   lease_start: string;
   lease_end: string;
+  base_rent?: number | null;
+  deposit_amount?: number | null;
 };
 
 function isDate(value: unknown): value is string {
@@ -22,6 +24,12 @@ export function parseTenantInput(body: unknown):
     return { error: "A tenant record is required." };
   }
   const t = body as Record<string, unknown>;
+  for (const key of ["baseRent", "depositAmount"]) {
+    const value = t[key];
+    if (value != null && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 9999999999.99 || Math.abs(value * 100 - Math.round(value * 100)) > 0.0001)) {
+      return { error: "Rent and deposit must be non-negative amounts with at most two decimal places." };
+    }
+  }
   if (typeof t.name !== "string" || !t.name.trim()) return { error: "Tenant name is required." };
   if (typeof t.icNumber !== "string" || !t.icNumber.trim()) return { error: "IC / Passport number is required." };
   if (typeof t.phone !== "string" || !t.phone.trim()) return { error: "Phone number is required." };
@@ -38,6 +46,8 @@ export function parseTenantInput(body: unknown):
       unit_id: typeof t.unitId === "string" ? t.unitId.trim() || null : null,
       lease_start: t.leaseStart,
       lease_end: t.leaseEnd,
+      ...(t.baseRent !== undefined ? { base_rent: t.baseRent as number | null } : {}),
+      ...(t.depositAmount !== undefined ? { deposit_amount: t.depositAmount as number | null } : {}),
     },
   };
 }

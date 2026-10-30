@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { tenantForMonth } from "@/lib/tenantRent";
 import { saveResource } from "@/lib/clientApi";
 import {
   EXPENSE_CATEGORIES,
@@ -265,8 +266,8 @@ export function QuickEntryModal({
       >
         {/* Header — Quick Entry + date left, property + tenant centered */}
         <fieldset disabled={saving} className="contents" aria-busy={saving}>
-        <div className="flex items-start gap-4 px-6 py-5 shrink-0" style={{ borderBottom: "1px solid var(--border-soft)" }}>
-          <div className="min-w-0 shrink-0 w-32">
+        <div className="flex items-start gap-2 sm:gap-4 px-3 sm:px-6 py-5 shrink-0" style={{ borderBottom: "1px solid var(--border-soft)" }}>
+          <div className="hidden sm:block min-w-0 shrink-0 w-32">
             <p className="text-[11px] uppercase tracking-[0.16em]" style={{ color: "var(--text-faint)" }}>Quick Entry</p>
             <span className="text-[11px] tabular-nums" style={{ color: "var(--text-faint)" }}>
               {now.toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric" })}
@@ -296,7 +297,7 @@ export function QuickEntryModal({
                 : `Record ${tab === "revenue" ? "revenue" : "an expense"}`}
             </p>
           </div>
-          <div className="w-32 shrink-0 flex justify-end">
+          <div className="sm:w-32 shrink-0 flex justify-end">
             <button
               type="button"
               onClick={requestClose}
@@ -322,8 +323,8 @@ export function QuickEntryModal({
                 // Reserve the window in the click handler, before the save awaits.
                 const receiptWindow = generateInvoice ? window.open("", "_blank", "width=820,height=1000") : null;
                 const res = await saveResource<{ entry: RevenueEntry }>(
-                  initialRevenueEntry ? `/api/revenue/${encodeURIComponent(initialRevenueEntry.id)}` : "/api/revenue",
-                  initialRevenueEntry ? "PUT" : "POST", entry);
+                  initialRevenueEntry && !initialRevenueEntry.scheduled ? `/api/revenue/${encodeURIComponent(initialRevenueEntry.id)}` : "/api/revenue",
+                  initialRevenueEntry && !initialRevenueEntry.scheduled ? "PUT" : "POST", entry);
                 if (!res.ok) {
                   receiptWindow?.close();
                   toast.info(res.error);
@@ -419,13 +420,16 @@ function RevenueForm({
   datePanel: React.ReactNode;
   contextSlot?: React.ReactNode;
 }) {
+  const { tenants } = useData();
   const unitId = unit?.id ?? "";
+  const tenant = tenantForMonth(tenants, unitId, year, month);
+  const defaultRent = tenant?.baseRent ?? unit?.rentalRate;
   const existing = entries.find((e) => e.unitId === unitId && e.year === year && e.month === month);
   const firstOfMonth = `${year}-${String(month).padStart(2, "0")}-01`;
   // Revenue only makes sense for an occupied room / unit.
   const vacant = !unit || (!existing && !unit.tenantName);
 
-  const [rental, setRental] = useState(existing ? String(existing.rental) : unit?.rentalRate ? String(unit.rentalRate) : "");
+  const [rental, setRental] = useState(existing ? String(existing.rental) : defaultRent != null ? String(defaultRent) : "");
   const [elecUnits, setElecUnits] = useState(existing?.electricityReading != null ? String(existing.electricityReading) : "");
   const [otherCharges, setOtherCharges] = useState(existing?.other != null ? String(existing.other) : "");
   const [payDate, setPayDate] = useState(existing?.paymentDate ?? firstOfMonth);

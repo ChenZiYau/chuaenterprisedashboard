@@ -5,125 +5,60 @@ const { loadTs } = require('./helpers/load-ts.cjs');
 const unit = { id: 'u1', propertyId: 'p1', name: 'Room A', rentalRate: 800, depositMonths: 2, depositAmount: 1650, electricityFreeUnits: 45 };
 const property = { id: 'p1', name: 'Garden House', shortName: 'Garden', city: 'KL', rentalModel: 'room_rental' };
 
-function find(node, predicate) {
-  if (!node || typeof node !== 'object') return null;
-  if (Array.isArray(node)) return node.map((child) => find(child, predicate)).find(Boolean);
-  return predicate(node) ? node : find(node.props?.children, predicate);
-}
+const { hookHost, find } = require('./helpers/hook-host.cjs');
 
-function depositHost(saveResult) {
-  let slots = [], cursor = 0, pending = [], dirty = false, tree, current = { ...unit }, refreshes = 0;
-  const calls = [];
-  const react = {
-    useState(seed) {
-      const i = cursor++;
-      if (!(i in slots)) slots[i] = typeof seed === 'function' ? seed() : seed;
-      return [slots[i], (value) => {
-        const next = typeof value === 'function' ? value(slots[i]) : value;
-        if (!Object.is(slots[i], next)) { slots[i] = next; dirty = true; }
-      }];
-    },
-    useMemo(fn) { return fn(); },
-    useEffect(effect, deps) {
-      const i = cursor++;
-      if (!slots[i] || deps.some((dep, n) => !Object.is(dep, slots[i][n]))) { slots[i] = deps; pending.push(effect); }
-    },
-  };
+function depositHost(tenants = []) {
+  const host = hookHost();
   const { default: Page } = loadTs('app/deposits/page.tsx', {
-    react,
-    'next/navigation': { useRouter: () => ({ refresh() { refreshes++; } }) },
-    '@/components/Toast': { useToast: () => ({ updated() {} }) },
-    '@/lib/DataContext': { useData: () => ({ properties: [property], getUnitsForProperty: () => [current], updateUnit: (saved) => { current = saved; } }) },
-    '@/lib/clientApi': { saveResource: async (path, method, body) => {
-      calls.push({ path, method, body });
-      return saveResult ? await saveResult(body) : { ok: true, data: { unit: { ...current, ...body } } };
-    } },
+    react: host.react,
+    '@/lib/DataContext': { useData: () => ({ properties: [property], tenants, units: [unit,
+      { ...unit, id: 'u2', depositAmount: null, depositMonths: 3 }] }) },
   });
-  const page = Page();
-  const section = find(page, (node) => node.type?.name === 'PropertyDepositSection');
-  const card = find(section.type(section.props), (node) => node.type?.name === 'DepositRoomCard');
-  slots = [];
-  function render() {
-    for (let i = 0; i < 8; i++) {
-      cursor = 0; pending = []; dirty = false;
-      tree = card.type({ unit: current });
-      pending.forEach((effect) => effect());
-      if (!dirty) return;
-    }
-    throw new Error('Deposit form did not settle');
-  }
-  render();
-  return {
-    render, calls,
-    get current() { return current; },
-    get refreshes() { return refreshes; },
-    find: (predicate) => find(tree, predicate),
-    button: (label) => find(tree, (node) => node.type === 'button' && node.props.children === label),
-    input: (step) => find(tree, (node) => node.type === 'input' && node.props.step === step),
-    page() { slots = []; cursor = 0; return Page(); },
-  };
+  return { render: () => host.render(() => Page()) };
 }
 
-test('deposit Save persists both fields and updates shared totals', async () => {
-  const host = depositHost();
-  host.button('Edit').props.onClick(); host.render();
-  host.input('0.5').props.onChange({ target: { value: '3' } }); host.render();
-  assert.equal(host.input('0.01').props.value, '2400');
-  host.input('0.01').props.onChange({ target: { value: '2500' } }); host.render();
-  await host.button('Save').props.onClick(); host.render();
-  assert.deepEqual(host.calls, [{ path: '/api/units/u1', method: 'PUT', body: { depositMonths: 3, depositAmount: 2500 } }]);
-  assert.equal(host.current.depositAmount, 2500);
-  assert.equal(host.current.rentalRate, 800);
-  assert.equal(host.current.electricityFreeUnits, 45);
-  assert.ok(host.button('Edit'));
-  assert.equal(host.refreshes, 1);
-  assert.ok(find(host.page(), (node) => typeof node.props?.children === 'string' && node.props.children.includes('2,500.00')));
+test('deposits display tenant amounts only without editable fields or room fallback totals', () => {
+  const tree = depositHost([
+    { id: 't1', name: 'Alice', unitId: 'u1', depositAmount: 1200 },
+    { id: 't2', name: 'Bob', unitId: '', depositAmount: 200 },
+    { id: 't3', name: 'Legacy Tenant', unitId: 'u2', depositAmount: null },
+  ]).render();
+  const text = JSON.stringify(tree);
+  for (const expected of ['1,400.00', 'Alice', 'Bob', 'Garden House', 'Room A', 'Unassigned']) assert.ok(text.includes(expected));
+  for (const excluded of ['1,650.00', '2,400.00', 'Legacy Tenant']) assert.ok(!text.includes(excluded));
+  assert.equal(find(tree, n => n.type === 'input' || n.type === 'form'), null);
+  assert.equal(find(tree, n => n.type === 'button'), null);
+  assert.ok(find(tree, n => n.type === 'a' && n.props.href === '/tenants'));
 });
 
-test('Cancel restores saved deposits without calling the API', () => {
-  const host = depositHost();
-  host.button('Edit').props.onClick(); host.render();
-  host.input('0.5').props.onChange({ target: { value: '7' } }); host.render();
-  host.button('Cancel').props.onClick(); host.render();
-  host.button('Edit').props.onClick(); host.render();
-  assert.equal(host.input('0.5').props.value, '2');
-  assert.equal(host.input('0.01').props.value, '1650');
-  assert.equal(host.calls.length, 0);
+test('property filtering updates totals and excludes unassigned tenant deposits', () => {
+  const host = depositHost([
+    { id: 't1', name: 'Alice', unitId: 'u1', depositAmount: 1200 },
+    { id: 't2', name: 'Bob', unitId: '', depositAmount: 200 },
+  ]);
+  let tree = host.render();
+  find(tree, n => n.props?.label === 'Garden').props.onClick();
+  tree = host.render();
+  assert.ok(JSON.stringify(tree).includes('1,200.00'));
+  assert.ok(!JSON.stringify(tree).includes('Bob'));
+  find(tree, n => n.props?.label === 'All Properties').props.onClick();
+  assert.ok(JSON.stringify(host.render()).includes('1,400.00'));
 });
 
-test('failed deposit save keeps the draft editable and shared data unchanged', async () => {
-  const host = depositHost(async () => ({ ok: false, error: 'Connection failed' }));
-  host.button('Edit').props.onClick(); host.render();
-  host.input('0.01').props.onChange({ target: { value: '900' } }); host.render();
-  await host.button('Save').props.onClick(); host.render();
-  assert.equal(host.input('0.01').props.value, '900');
-  assert.equal(host.current.depositAmount, 1650);
-  assert.equal(host.refreshes, 0);
-  assert.equal(host.find((node) => node.props?.role === 'alert').props.children, 'Connection failed');
+test('legacy room deposits do not count as received tenant deposits', () => {
+  const text = JSON.stringify(depositHost([{ id: 't1', name: 'Legacy', unitId: 'u1' }]).render());
+  assert.ok(text.includes('No tenant deposits recorded'));
+  assert.ok(text.includes('0.00'));
+  assert.ok(!text.includes('1,650.00'));
+  assert.ok(!text.includes('2,400.00'));
 });
 
-test('explicit zero deposit overrides the calculated deposit in card and total', async () => {
-  const host = depositHost();
-  host.button('Edit').props.onClick(); host.render();
-  host.input('0.01').props.onChange({ target: { value: '0' } }); host.render();
-  await host.button('Save').props.onClick(); host.render();
-  assert.equal(host.current.depositMonths, 2);
-  assert.equal(host.current.depositAmount, 0);
-  assert.ok(host.find((node) => typeof node.props?.children === 'string' && node.props.children.includes('0.00')));
-  assert.ok(find(host.page(), (node) => typeof node.props?.children === 'string' && node.props.children.includes('0.00')));
-});
-
-test('pending deposit save disables Save, Cancel and fields', async () => {
-  let finish;
-  const host = depositHost((body) => new Promise((resolve) => { finish = () => resolve({ ok: true, data: { unit: { ...unit, ...body } } }); }));
-  host.button('Edit').props.onClick(); host.render();
-  const saving = host.button('Save').props.onClick(); host.render();
-  assert.equal(host.button('Saving...').props.disabled, true);
-  assert.equal(host.button('Cancel').props.disabled, true);
-  assert.equal(host.input('0.01').props.disabled, true);
-  await host.button('Saving...').props.onClick();
-  assert.equal(host.calls.length, 1);
-  finish(); await saving;
+test('explicit zero tenant deposits are displayed without room defaults', () => {
+  const text = JSON.stringify(depositHost([{ id: 't1', name: 'Zero Tenant', unitId: 'u1', depositAmount: 0 }]).render());
+  assert.ok(text.includes('Zero Tenant'));
+  assert.ok(text.includes('0.00'));
+  assert.ok(!text.includes('No tenant deposits recorded'));
+  assert.ok(!text.includes('1,650.00'));
 });
 
 function depositApi(result = {}) {

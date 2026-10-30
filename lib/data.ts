@@ -83,6 +83,8 @@ export type Tenant = {
   unitId: string; // Empty when unassigned; stored as NULL in Supabase.
   leaseStart: string; // YYYY-MM-DD
   leaseEnd: string; // YYYY-MM-DD
+  baseRent?: number | null;
+  depositAmount?: number | null;
 };
 
 export type Unit = {
@@ -98,6 +100,7 @@ export type Unit = {
 };
 
 export type RevenueEntry = {
+  scheduled?: boolean;
   id: string;
   propertyId: string;
   unitId: string;

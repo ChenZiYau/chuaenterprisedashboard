@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AccountsExportButton } from "@/components/AccountsExportButton";
 import { useRouter } from "next/navigation";
 import { ActionMenu, DateField, Pagination, usePagination } from "@/components/ui";
 import { useToast } from "@/components/Toast";
@@ -134,6 +135,8 @@ export default function ExpensesPage() {
           </div>
         </div>
       </div>
+
+      <AccountsExportButton fromDate={fromDate} toDate={toDate} propertyId={filterProp} displayed={filtered} source="expenses" filters={`Category: ${filterCategory}; Search: ${search}`} />
 
       {/* Table */}
       {filtered.length === 0 ? (

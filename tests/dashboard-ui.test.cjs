@@ -40,7 +40,7 @@ function ledgerHost(modulePath, exportName, { expenses = false, noProperties = f
   let refreshes = 0;
   const messages = [], calls = [];
   let data = {
-    properties: noProperties ? [] : [property], units: [unit], revenueEntries: [entry],
+    properties: noProperties ? [] : [property], tenants: [], units: [unit], revenueEntries: [entry],
     expenseEntries: [{ id: 'e1', propertyId: 'p1', unitId: null, year, month: 10, expenseDate: `${year}-10-14`, category: 'maintenance', amount: 120 }],
     getUnit: () => unit, getUnitsForProperty: () => [unit],
   };
@@ -112,11 +112,11 @@ for (const [file, exported] of [['app/invoices/page.tsx', 'default'], ['componen
 
 test('failed gallery retrieval blocks editing/saving, and Retry restores the saved gallery', async () => {
   const host = hookHost();
-  const { PropertyImagesTab } = loadTs('components/PropertyImagesTab.tsx', {
+  const { PropertyImagesTab, PropertyImagesEditor } = loadTs('components/PropertyImagesTab.tsx', {
     react: host.react, '@/components/VaultCropModal': { VaultCropModal() {} },
     '@/components/Toast': { useToast: () => ({ created() {}, info() {} }) },
   });
-  const outer = PropertyImagesTab({ property });
+  const outer = { type: PropertyImagesEditor, props: { property }, key: property.id };
   assert.equal(outer.key, 'p1');
   assert.equal(PropertyImagesTab({ property: { ...property, id: 'p2' } }).key, 'p2');
   const previous = global.fetch;
