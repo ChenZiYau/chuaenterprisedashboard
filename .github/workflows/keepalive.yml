@@ -1,14 +1,17 @@
 name: Supabase Keep-Alive
 
-# Pings the Supabase database on a schedule so the free-tier project does not
-# pause after ~7 days of inactivity. Runs every 3 days (and can be run by hand
+# Writes a daily health-check entry to reduce free-tier inactivity pauses.
+# Availability is not guaranteed. Runs daily (and can be run by hand
 # from the Actions tab). Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY under
 # Repo Settings -> Secrets and variables -> Actions.
 
 on:
   schedule:
-    - cron: "0 6 */3 * *" # 06:00 UTC every 3rd day
+    - cron: "17 0 * * *" # Daily at 08:17 Asia/Kuala_Lumpur (00:17 UTC)
   workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 jobs:
   ping:
@@ -20,7 +23,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - name: Ping Supabase
+      - name: Write daily database health check
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -2,15 +2,17 @@
 /**
  * Supabase keep-alive.
  *
- * Supabase's free tier pauses a project after ~7 days with no activity. This
- * script makes a tiny request against the database so the project stays awake.
- * Scheduled by .github/workflows/keepalive.yml every three days.
+ * Supabase's free tier may pause a project after a week of low activity. This
+ * daily write reduces that risk; it cannot guarantee availability or resume
+ * a paused project. Resume the project in the Supabase dashboard first.
+ * Scheduled by .github/workflows/keepalive.yml daily at 08:17 Malaysia time.
+ * First run scripts/setup-database-healthcheck.sql in the Supabase SQL editor.
  * Connects directly with Supabase credentials; CRON_SECRET is only needed
  * for the separate /api/keepalive HTTP endpoint. Do not add a second schedule.
  *
  * Env it reads (from process env or a local .env when run manually):
  *   SUPABASE_URL            (or NEXT_PUBLIC_SUPABASE_URL)
- *   SUPABASE_SERVICE_ROLE_KEY  (preferred) or NEXT_PUBLIC_SUPABASE_ANON_KEY
+ *   SUPABASE_SERVICE_ROLE_KEY  (required; anonymous access is disabled)
  *
  * Usage: node scripts/keepalive.mjs
  */
@@ -29,11 +31,10 @@ try {
 }
 
 const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const key =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!url || !key) {
-  console.error("keepalive: missing SUPABASE_URL / key env vars");
+  console.error("keepalive: missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY env vars");
   process.exit(1);
 }
 
@@ -44,13 +45,11 @@ const supabase = createClient(url, key, {
 const signal = AbortSignal.timeout(10_000);
 try {
   const { error } = await supabase
-    .from("properties")
-    .select("id", { head: true })
-    .limit(1)
+    .rpc("record_database_healthcheck")
     .abortSignal(signal);
   if (error) throw error;
   console.log(JSON.stringify({ ok: true, at: new Date().toISOString() }));
 } catch {
-  console.error(JSON.stringify({ ok: false, at: new Date().toISOString(), error: signal.aborted ? "Database check timed out" : "Database check failed" }));
+  console.error(JSON.stringify({ ok: false, at: new Date().toISOString(), error: signal.aborted ? "Database check timed out" : "Database check failed. Verify the project is resumed, setup SQL has been applied, and Actions secrets are configured." }));
   process.exitCode = 1;
 }
